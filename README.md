@@ -1,8 +1,22 @@
 # @novahub/storefront-sdk
 
-SDK для создания кастомных шаблонов магазинов NovaHub. Поддерживает Vue 3 и React.
+SDK для создания кастомных шаблонов магазинов NovaHub. Поддерживает Vue 3, React и Vanilla JS.
 
-## Установка
+## Быстрый старт
+
+Самый быстрый способ — начать со стартового шаблона:
+
+```bash
+# Vue
+npx degit NovaTeam-ltd/storefront-sdk/starters/vue my-shop
+cd my-shop && npm install && npm run dev
+
+# React
+npx degit NovaTeam-ltd/storefront-sdk/starters/react my-shop
+cd my-shop && npm install && npm run dev
+```
+
+Или добавить в существующий проект:
 
 ```bash
 npm install @novahub/storefront-sdk
@@ -200,4 +214,85 @@ my-template/
 │   └── components/
 ├── index.html
 └── vite.config.js
+```
+
+---
+
+## Dev Mode
+
+При локальной разработке (`localhost`, `127.0.0.1`, `192.168.*`) SDK автоматически переключается в dev mode и использует тестовые данные. Никакие API-запросы не отправляются.
+
+### Автоматическое определение
+
+```js
+const client = new NovaClient()
+client.isDevMode() // true на localhost
+```
+
+### Ручное включение
+
+```js
+import { createNova } from '@novahub/storefront-sdk/vue'
+
+app.use(createNova({
+  devMode: true,
+}))
+```
+
+### Кастомные тестовые данные
+
+```js
+app.use(createNova({
+  devMode: true,
+  devShop: {
+    name: 'Мой Магазин',
+    primaryColor: '#ff4655',
+    currency: 'USD',
+  },
+  devProducts: [
+    { id: '1', name: 'Товар 1', price: 100, category: 'cards', image: null, deliveryType: 'auto', stock: 10 },
+    { id: '2', name: 'Товар 2', price: 200, category: 'premium', image: null, deliveryType: 'manual', stock: 5 },
+  ],
+}))
+```
+
+### Готовые моки
+
+SDK экспортирует тестовые данные для использования в тестах:
+
+```js
+import { MOCK_SHOP, MOCK_PRODUCTS } from '@novahub/storefront-sdk'
+```
+
+В dev mode в консоли браузера появляется сообщение:
+```
+[NovaHub SDK] Dev mode active — using mock data
+```
+
+---
+
+## Валидация шаблона
+
+При загрузке шаблон проверяется на:
+
+- **Наличие index.html** в корне или dist/
+- **Запрещённые расширения файлов** — только html, css, js, json, svg, png, jpg, gif, webp, ico, woff, woff2, ttf, eot, txt, webmanifest
+- **Опасные паттерны** — iframe, eval, document.cookie, new Function, внешние скрипты
+- **Размер** — до 10MB на файл, до 50MB всего, до 500 файлов
+
+Можно провалидировать до загрузки через API:
+
+```
+POST /api/templates/validate?projectId=xxx
+Content-Type: multipart/form-data
+Body: file (ZIP)
+```
+
+Ответ:
+```json
+{
+  "valid": true,
+  "errors": [],
+  "warnings": ["File hero.png (2.5 MB) is large"]
+}
 ```
