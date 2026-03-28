@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import { NovaProvider } from '@novahub/storefront-sdk/react'
+import { NovaProvider } from '@novasynx/storefront-sdk/react'
 import { App } from './App'
 import './style.css'
 

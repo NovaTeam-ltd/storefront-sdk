@@ -1,5 +1,5 @@
 <script setup>
-import { useShop, useProducts, useCategories } from '@novahub/storefront-sdk/vue'
+import { useShop, useProducts, useCategories } from '@novasynx/storefront-sdk/vue'
 
 const { shop, loading: shopLoading, error: shopError } = useShop()
 const { products, loading: productsLoading } = useProducts()

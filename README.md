@@ -1,4 +1,4 @@
-# @novahub/storefront-sdk
+# @novasynx/storefront-sdk
 
 SDK для создания кастомных шаблонов магазинов NovaHub. Поддерживает Vue 3, React и Vanilla JS.
 
@@ -19,7 +19,7 @@ cd my-shop && npm install && npm run dev
 Или добавить в существующий проект:
 
 ```bash
-npm install @novahub/storefront-sdk
+npm install @novasynx/storefront-sdk
 ```
 
 ## Что предоставляет SDK
@@ -57,7 +57,7 @@ SDK автоматически применяет CSS-переменные пр�
 ```js
 // main.js
 import { createApp } from 'vue'
-import { createNova } from '@novahub/storefront-sdk/vue'
+import { createNova } from '@novasynx/storefront-sdk/vue'
 import App from './App.vue'
 
 const app = createApp(App)
@@ -69,7 +69,7 @@ app.mount('#app')
 
 ```vue
 <script setup>
-import { useShop, useProducts, useCategories } from '@novahub/storefront-sdk/vue'
+import { useShop, useProducts, useCategories } from '@novasynx/storefront-sdk/vue'
 
 const { shop, loading, error } = useShop()
 const { products, loading: productsLoading } = useProducts()
@@ -106,7 +106,7 @@ const { categories } = useCategories()
 ```jsx
 // main.jsx
 import { createRoot } from 'react-dom/client'
-import { NovaProvider } from '@novahub/storefront-sdk/react'
+import { NovaProvider } from '@novasynx/storefront-sdk/react'
 import App from './App'
 
 createRoot(document.getElementById('root')).render(
@@ -119,7 +119,7 @@ createRoot(document.getElementById('root')).render(
 ### Использование
 
 ```jsx
-import { useShop, useProducts, useCategories } from '@novahub/storefront-sdk/react'
+import { useShop, useProducts, useCategories } from '@novasynx/storefront-sdk/react'
 
 function App() {
   const { shop, loading, error } = useShop()
@@ -154,7 +154,7 @@ function App() {
 ## Vanilla JS (без фреймворка)
 
 ```js
-import { NovaClient, applyTheme } from '@novahub/storefront-sdk'
+import { NovaClient, applyTheme } from '@novasynx/storefront-sdk'
 
 const client = new NovaClient()
 
@@ -232,7 +232,7 @@ client.isDevMode() // true на localhost
 ### Ручное включение
 
 ```js
-import { createNova } from '@novahub/storefront-sdk/vue'
+import { createNova } from '@novasynx/storefront-sdk/vue'
 
 app.use(createNova({
   devMode: true,
@@ -261,7 +261,7 @@ app.use(createNova({
 SDK экспортирует тестовые данные для использования в тестах:
 
 ```js
-import { MOCK_SHOP, MOCK_PRODUCTS } from '@novahub/storefront-sdk'
+import { MOCK_SHOP, MOCK_PRODUCTS } from '@novasynx/storefront-sdk'
 ```
 
 В dev mode в консоли браузера появляется сообщение:

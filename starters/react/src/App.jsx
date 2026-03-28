@@ -1,4 +1,4 @@
-import { useShop, useProducts, useCategories } from '@novahub/storefront-sdk/react'
+import { useShop, useProducts, useCategories } from '@novasynx/storefront-sdk/react'
 
 function formatPrice(price) {
   return new Intl.NumberFormat('ru-RU').format(price)

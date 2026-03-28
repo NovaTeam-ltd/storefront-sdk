@@ -15,7 +15,7 @@ export default defineConfig([
     dts: true,
     sourcemap: true,
     outDir: 'dist/vue',
-    external: ['vue', '@novahub/storefront-sdk'],
+    external: ['vue', '@novasynx/storefront-sdk'],
   },
   {
     entry: ['src/react/index.tsx'],
@@ -23,6 +23,6 @@ export default defineConfig([
     dts: true,
     sourcemap: true,
     outDir: 'dist/react',
-    external: ['react', '@novahub/storefront-sdk'],
+    external: ['react', '@novasynx/storefront-sdk'],
   },
 ])

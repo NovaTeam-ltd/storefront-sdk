@@ -1,5 +1,5 @@
 import { createApp } from 'vue'
-import { createNova } from '@novahub/storefront-sdk/vue'
+import { createNova } from '@novasynx/storefront-sdk/vue'
 import App from './App.vue'
 import './style.css'
 
