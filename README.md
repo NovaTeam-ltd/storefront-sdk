@@ -26,10 +26,15 @@ npm install @novasynx/storefront-sdk
 
 | Метод | Описание |
 |-------|----------|
-| `getShop()` | Название магазина, цветовая схема, валюта, SEO |
+| `getShop()` | Название, цвет, валюта, SEO + `visitor` (язык/валюта/тема пользователя) |
 | `getProducts(projectId, category?)` | Товары (все или по категории) |
-| `getCategories(projectId)` | Список категорий товаров |
-| `getProduct(projectId, productId)` | Один товар по ID |
+| `getCategories(projectId)` | Список категорий |
+| `getProduct(projectId, productId)` | Один товар |
+| `getPaymentMethods(projectId)` | Список доступных способов оплаты с иконками |
+| `purchaseProduct(projectId, body, opts?)` | Покупка товара (qty + выбор оплаты) → `payUrl` |
+| `getOrder(projectId, orderId)` | Статус заказа после оплаты + содержимое автодоставки |
+| `waitForOrder(projectId, orderId, opts?)` | Опрашивает заказ до терминального статуса |
+| `setPreferences({ locale, currency, theme })` | Сохраняет настройки визитора в cookies |
 
 ## CSS-переменные
 
@@ -183,6 +188,24 @@ interface NovaShop {
   seoTitle: string
   seoDescription: string
   status: string
+  favicon?: string | null
+  manifestName?: string | null
+  locale?: string
+  ogImage?: string | null
+  /** Список id платёжек, включённых в проекте. */
+  enabledPaymentMethods?: string[]
+  /** Данные визитора (cookie + Accept-Language). */
+  visitor?: NovaVisitor
+}
+
+interface NovaVisitor {
+  id: string                 // стабильный id из HttpOnly cookie
+  fingerprint: string        // sha256(UA + Accept-Language + IP), для аналитики
+  locale: string             // cookie > Accept-Language > project default
+  currency: string           // cookie override or project default
+  theme: 'auto' | 'light' | 'dark'
+  defaultLocale: string
+  defaultCurrency: string
 }
 
 interface NovaProduct {
@@ -194,7 +217,223 @@ interface NovaProduct {
   deliveryType: string
   stock: number
 }
+
+interface NovaPaymentMethod {
+  id: 'cryptobot' | 'heleket' | 'lolz'
+  name: string
+  icon: string               // data:image/svg+xml — сразу в <img src>
+  currencies: string[]
+}
+
+interface NovaPurchaseRequest {
+  productId: string          // uuid
+  quantity: number           // 1..99, integer
+  paymentMethod: 'cryptobot' | 'heleket' | 'lolz'
+  email?: string
+  customerInfo?: Record<string, string>
+}
+
+interface NovaPurchaseResult {
+  orderId: string
+  payUrl: string
+  paymentMethod: string
+  totalRub: number
+  totalPay: number
+  currency: string
+}
 ```
+
+---
+
+## Покупка товара
+
+На сервере создаётся заказ и выставляется счёт в выбранной платёжной системе. SDK возвращает
+`payUrl` — перенаправьте на него пользователя.
+
+### Vue
+
+```vue
+<script setup>
+import { useShop, usePaymentMethods, usePurchase } from '@novasynx/storefront-sdk/vue'
+
+const { shop } = useShop()
+const { methods } = usePaymentMethods()
+const { purchase, loading, error } = usePurchase()
+
+async function buy(productId) {
+  const res = await purchase({
+    productId,
+    quantity: 1,
+    paymentMethod: 'cryptobot',  // из methods[].id
+    email: 'user@example.com',
+  })
+  window.location.href = res.payUrl
+}
+</script>
+
+<template>
+  <div v-for="m in methods" :key="m.id">
+    <img :src="m.icon" :alt="m.name" width="24" height="24" />
+    {{ m.name }}
+  </div>
+</template>
+```
+
+### React
+
+```jsx
+import { usePaymentMethods, usePurchase } from '@novasynx/storefront-sdk/react'
+
+function BuyButton({ productId }) {
+  const { methods } = usePaymentMethods()
+  const { purchase, loading, error } = usePurchase()
+
+  async function handleBuy() {
+    const res = await purchase({
+      productId,
+      quantity: 2,
+      paymentMethod: methods[0].id,
+    })
+    window.location.href = res.payUrl
+  }
+
+  return <button onClick={handleBuy} disabled={loading}>Купить</button>
+}
+```
+
+### Vanilla
+
+```js
+import { NovaClient } from '@novasynx/storefront-sdk'
+
+const client = new NovaClient()
+const shop = await client.getShop()
+const methods = await client.getPaymentMethods(shop.projectId)
+
+const { payUrl } = await client.purchaseProduct(shop.projectId, {
+  productId: 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx',
+  quantity: 1,
+  paymentMethod: 'cryptobot',
+})
+location.href = payUrl
+```
+
+### Полный круг: оплата → выдача → email
+
+После того как пользователь вернулся со страницы оплаты, опросите статус заказа.
+Сервер автоматически:
+
+- получает webhook от провайдера и переводит заказ в `PAID` → `PROCESSING`;
+- читает `Product.deliveryType`:
+  - `auto` + `externalServiceId` → дергает внешнего поставщика (ns.gifts) `quantity` раз;
+  - `auto` + `deliveryData` → возвращает сохранённые ключи/коды;
+  - `manual` → оставляет заказ для ручной выдачи продавцом;
+- декрементит `stock`;
+- отправляет на `email` письмо с содержимым заказа (если он указан).
+
+#### Vue
+
+```vue
+<script setup lang="ts">
+import { useOrder } from '@novasynx/storefront-sdk/vue'
+const { order, loading } = useOrder(route.query.orderId, { autoPoll: true })
+</script>
+
+<template>
+  <div v-if="loading">Ожидаем подтверждение оплаты…</div>
+  <div v-else-if="order?.status === 'COMPLETED' && order.delivery?.content">
+    <h2>Ваш товар:</h2>
+    <pre>{{ order.delivery.content }}</pre>
+  </div>
+  <div v-else-if="order?.status === 'COMPLETED' && order.delivery?.manual">
+    Заказ оплачен. Продавец выдаст товар в течение 24 часов.
+  </div>
+  <div v-else-if="order?.status === 'FAILED'">Оплата не прошла</div>
+</template>
+```
+
+#### React
+
+```tsx
+import { useOrder } from '@novasynx/storefront-sdk/react'
+
+export function ThankYou({ orderId }: { orderId: string }) {
+  const { order } = useOrder(orderId, { autoPoll: true })
+  if (!order) return <p>Ожидаем подтверждение…</p>
+  if (order.status === 'COMPLETED' && order.delivery?.content)
+    return <pre>{order.delivery.content}</pre>
+  if (order.status === 'COMPLETED' && order.delivery?.manual)
+    return <p>Заказ принят, продавец выдаст товар вручную.</p>
+  return <p>Статус: {order.status}</p>
+}
+```
+
+#### Vanilla
+
+```js
+const status = await client.waitForOrder(shop.projectId, orderId, {
+  intervalMs: 2500,
+  timeoutMs: 5 * 60 * 1000,
+  onUpdate: (s) => console.log(s.status),
+})
+if (status.status === 'COMPLETED' && status.delivery?.content) {
+  document.getElementById('codes').textContent = status.delivery.content
+}
+```
+
+### Безопасность
+
+Покупка выполнена по принципу **"клиент никогда не доверен"**. Важные правила:
+
+- **Цена считается на сервере** из `Product.price * quantity`. С клиента цена не принимается.
+- **`paymentMethod` проверяется по whitelist** проекта (`Project.paymentMethod`).
+- **`quantity` валидируется**: integer 1..99 и ≤ stock товара.
+- **`productId` — UUID v4**, должен принадлежать этому проекту и быть `active`.
+- **`email` валидируется** простым regex на обеих сторонах.
+- **Idempotency-Key**: SDK автоматически генерирует ключ (UUID), сервер кэширует ответ на 10 минут — повторные отправки не создают дубликатов.
+- **Rate-limit**: `POST /:projectId/orders` — 10/мин/IP, `payment-methods` — 60/мин/IP.
+- **Cookies**: `nv_visitor`, `nv_locale`, `nv_currency`, `nv_theme` — `HttpOnly`, `SameSite=Lax`, `Secure` в проде.
+- **Статус магазина**: заказ отклоняется, если `project.status ≠ 'active'`.
+- **Иконки платёжек** — inline `data:image/svg+xml`, без внешних запросов (не сливают referrer / IP).
+
+Для отмены реквеста можно передать `AbortSignal`:
+
+```js
+const ctrl = new AbortController()
+client.purchaseProduct(projectId, body, { signal: ctrl.signal })
+ctrl.abort()
+```
+
+---
+
+## Язык и настройки пользователя (visitor)
+
+`getShop()` ретюрнит поле `visitor` с языком, валютой и темой пользователя.
+Приоритет значений:
+
+1. **Cookie** (`nv_locale`, `nv_currency`, `nv_theme`) — если пользователь явно их выбрал.
+2. **HTTP `Accept-Language`** — для `locale` выбирается первый поддерживаемый.
+3. **Настройки проекта** — fallback.
+
+`visitor.id` — стабильный визитор (UUID в cookie `nv_visitor`, HttpOnly).
+`visitor.fingerprint` — срез sha256(UA + Accept-Language + IP), используется только для аналитики
+(не для авторизации) и остаётся стабильным при одном браузере/IP.
+
+### Переключение языка
+
+```js
+// ванильный JS
+await client.setPreferences({ locale: 'en', currency: 'USD', theme: 'dark' })
+
+// Vue
+import { usePreferences } from '@novasynx/storefront-sdk/vue'
+const { set } = usePreferences()
+await set({ locale: 'en' })
+```
+
+После вызова сервер пишет cookies, перезагрузите шоп через `client.getShop()` или перезагрузите страницу.
+
+---
 
 ## Структура шаблона для загрузки
 
@@ -261,7 +500,7 @@ app.use(createNova({
 SDK экспортирует тестовые данные для использования в тестах:
 
 ```js
-import { MOCK_SHOP, MOCK_PRODUCTS } from '@novasynx/storefront-sdk'
+import { MOCK_SHOP, MOCK_PRODUCTS, MOCK_PAYMENT_METHODS } from '@novasynx/storefront-sdk'
 ```
 
 В dev mode в консоли браузера появляется сообщение:

@@ -7,7 +7,17 @@ import {
   type ReactNode,
 } from 'react'
 import { NovaClient, applyTheme } from '../index'
-import type { NovaShop, NovaProduct, NovaSDKConfig } from '../types'
+import type {
+  NovaShop,
+  NovaProduct,
+  NovaSDKConfig,
+  NovaPaymentMethod,
+  NovaPurchaseRequest,
+  NovaPurchaseOptions,
+  NovaPurchaseResult,
+  NovaPreferences,
+  NovaOrderStatus,
+} from '../types'
 
 interface NovaContextValue {
   client: NovaClient
@@ -142,4 +152,147 @@ export function useProduct(productId: string) {
   return { product, loading, error }
 }
 
-export type { NovaShop, NovaProduct, NovaSDKConfig }
+export function useNova() {
+  return useNovaContext().client
+}
+
+export function usePaymentMethods() {
+  const { client, shop } = useNovaContext()
+  const [methods, setMethods] = useState<NovaPaymentMethod[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!shop?.projectId) return
+    let cancelled = false
+    setLoading(true)
+    client.getPaymentMethods(shop.projectId)
+      .then((data) => { if (!cancelled) setMethods(data) })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load payment methods') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [client, shop?.projectId])
+
+  return { methods, loading, error }
+}
+
+export function usePurchase() {
+  const { client, shop } = useNovaContext()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<NovaPurchaseResult | null>(null)
+
+  const purchase = useCallback(async (
+    body: NovaPurchaseRequest,
+    opts: NovaPurchaseOptions = {},
+  ): Promise<NovaPurchaseResult> => {
+    if (!shop?.projectId) throw new Error('Shop is not loaded yet')
+    setLoading(true)
+    setError(null)
+    try {
+      const r = await client.purchaseProduct(shop.projectId, body, opts)
+      setResult(r)
+      return r
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Purchase failed'
+      setError(msg)
+      throw e
+    } finally {
+      setLoading(false)
+    }
+  }, [client, shop?.projectId])
+
+  return { purchase, loading, error, result }
+}
+
+export function useVisitor() {
+  const { shop } = useNovaContext()
+  return shop?.visitor ?? null
+}
+
+export function usePreferences() {
+  const { client } = useNovaContext()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const set = useCallback(async (prefs: NovaPreferences) => {
+    setLoading(true)
+    setError(null)
+    try {
+      return await client.setPreferences(prefs)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to set preferences')
+      throw e
+    } finally {
+      setLoading(false)
+    }
+  }, [client])
+
+  return { set, loading, error }
+}
+
+export function useOrder(orderId: string, options: { autoPoll?: boolean; intervalMs?: number } = {}) {
+  const { client, shop } = useNovaContext()
+  const [order, setOrder] = useState<NovaOrderStatus | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    if (!shop?.projectId) return null
+    setLoading(true)
+    setError(null)
+    try {
+      const r = await client.getOrder(shop.projectId, orderId)
+      setOrder(r)
+      return r
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load order')
+      throw e
+    } finally {
+      setLoading(false)
+    }
+  }, [client, shop?.projectId, orderId])
+
+  useEffect(() => {
+    if (!shop?.projectId) return
+    let cancelled = false
+    const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED'])
+    const interval = Math.max(1000, options.intervalMs ?? 2500)
+
+    if (options.autoPoll === false) {
+      refresh().catch(() => undefined)
+      return () => { cancelled = true }
+    }
+
+    ;(async () => {
+      while (!cancelled) {
+        try {
+          const r = await client.getOrder(shop.projectId, orderId)
+          if (cancelled) return
+          setOrder(r)
+          if (terminal.has(r.status)) return
+        } catch (e) {
+          if (cancelled) return
+          setError(e instanceof Error ? e.message : 'Failed to load order')
+        }
+        await new Promise((res) => setTimeout(res, interval))
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [client, shop?.projectId, orderId])
+
+  return { order, loading, error, refresh }
+}
+
+export type {
+  NovaShop,
+  NovaProduct,
+  NovaSDKConfig,
+  NovaPaymentMethod,
+  NovaPurchaseRequest,
+  NovaPurchaseOptions,
+  NovaPurchaseResult,
+  NovaPreferences,
+  NovaOrderStatus,
+}
