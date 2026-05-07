@@ -122,4 +122,50 @@ export interface NovaSDKConfig {
    * Defaults to `'include'` so the visitor cookie is persisted.
    */
   credentials?: RequestCredentials
+  /**
+   * Public project key (`nv_pk_…`). Required for all project-scoped calls.
+   * If omitted, it will be picked up automatically from `getShop()` response.
+   */
+  projectKey?: string
+  /**
+   * Pre-known projectId. If omitted, it is inferred from `getShop()`.
+   */
+  projectId?: string
+}
+
+export interface NovaCustomer {
+  id: string
+  email: string
+  /** JWT, only present in verifyOtp() response. */
+  token?: string
+}
+
+export interface NovaCustomerOrder {
+  orderId: string
+  status: string
+  totalRub: number
+  totalPay: number
+  productId?: string | null
+  productName?: string
+  quantity?: number
+  paymentMethod?: string
+  createdAt: string
+  delivery: NovaOrderDelivery | null
+}
+
+export interface NovaSupportMessage {
+  id: string
+  sender: 'customer' | 'support' | 'system' | string
+  text: string
+  createdAt: string
+  fileId?: string | null
+  fileType?: string | null
+}
+
+export interface NovaSupportChat {
+  id: string
+  orderId: string
+  status: string
+  messages: NovaSupportMessage[]
+  rating: number | null
 }

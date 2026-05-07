@@ -7,13 +7,21 @@ import type {
   NovaPurchaseOptions,
   NovaPurchaseResult,
   NovaPreferences,
+  NovaOrderStatus,
+  NovaCustomer,
+  NovaCustomerOrder,
+  NovaSupportChat,
+  NovaSupportMessage,
 } from './types'
 import { MOCK_SHOP, MOCK_PRODUCTS, MOCK_PAYMENT_METHODS } from './mock'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_\-]{16,128}$/
+const PROJECT_KEY_RE = /^nv_pk_[A-Za-z0-9_\-]{8,128}$/
+const OTP_RE = /^\d{4,8}$/
 const MAX_QUANTITY = 99
+const CUSTOMER_TOKEN_KEY = 'novahub:customer-token'
 
 function safeRandomId(): string {
   if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
@@ -24,6 +32,26 @@ function safeRandomId(): string {
     Math.random().toString(36).slice(2) +
     Math.random().toString(36).slice(2)
   ).slice(0, 32)
+}
+
+function loadStoredToken(projectId: string): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(`${CUSTOMER_TOKEN_KEY}:${projectId}`)
+  } catch {
+    return null
+  }
+}
+
+function persistToken(projectId: string, token: string | null) {
+  if (typeof window === 'undefined') return
+  try {
+    const k = `${CUSTOMER_TOKEN_KEY}:${projectId}`
+    if (token) window.localStorage.setItem(k, token)
+    else window.localStorage.removeItem(k)
+  } catch {
+    /* ignore */
+  }
 }
 
 export class NovaError extends Error {
@@ -44,6 +72,10 @@ export class NovaClient {
   private devProducts: NovaProduct[]
   private devPaymentMethods: NovaPaymentMethod[]
   private credentials: RequestCredentials
+  private projectKey: string | null
+  private projectId: string | null
+  private customerToken: string | null
+  private checkoutToken: { token: string; exp: number } | null = null
 
   constructor(config: NovaSDKConfig = {}) {
     this.apiBase = (config.apiBase || '/api/storefront').replace(/\/+$/, '')
@@ -52,6 +84,13 @@ export class NovaClient {
     this.devProducts = config.devProducts ?? MOCK_PRODUCTS
     this.devPaymentMethods = config.devPaymentMethods ?? MOCK_PAYMENT_METHODS
     this.credentials = config.credentials ?? 'include'
+    this.projectKey = config.projectKey || null
+    this.projectId = config.projectId || null
+    this.customerToken = this.projectId ? loadStoredToken(this.projectId) : null
+
+    if (this.projectKey && !PROJECT_KEY_RE.test(this.projectKey)) {
+      throw new NovaError('Invalid projectKey format (expected nv_pk_…)', 400)
+    }
 
     if (this.devMode && typeof console !== 'undefined') {
       console.info('[NovaHub SDK] Dev mode active — using mock data')
@@ -68,22 +107,60 @@ export class NovaClient {
     return this.devMode
   }
 
+  setProjectKey(key: string) {
+    if (!PROJECT_KEY_RE.test(key)) throw new NovaError('Invalid projectKey', 400)
+    this.projectKey = key
+  }
+
+  setProjectId(id: string) {
+    if (!UUID_RE.test(id)) throw new NovaError('Invalid projectId', 400)
+    this.projectId = id
+    this.customerToken = loadStoredToken(id)
+  }
+
+  isAuthenticated(): boolean {
+    return !!this.customerToken
+  }
+
+  getCustomerToken(): string | null {
+    return this.customerToken
+  }
+
+  logout() {
+    if (this.projectId) persistToken(this.projectId, null)
+    this.customerToken = null
+  }
+
   private async request<T>(
     path: string,
     init: RequestInit = {},
     signal?: AbortSignal,
+    opts: { withKey?: boolean; withCustomer?: boolean; withCheckout?: string } = {},
   ): Promise<T> {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...((init.headers as Record<string, string>) || {}),
+    }
+    if (opts.withKey) {
+      if (!this.projectKey) throw new NovaError('projectKey is required', 400)
+      headers['X-Project-Key'] = this.projectKey
+    }
+    if (opts.withCustomer) {
+      if (!this.customerToken) throw new NovaError('Authentication required', 401)
+      headers['Authorization'] = `Bearer ${this.customerToken}`
+    }
+    if (opts.withCheckout) {
+      headers['X-Checkout-Token'] = opts.withCheckout
+    }
+
     let response: Response
     try {
       response = await fetch(`${this.apiBase}${path}`, {
         ...init,
         signal: signal ?? init.signal,
         credentials: this.credentials,
-        headers: {
-          Accept: 'application/json',
-          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-          ...(init.headers || {}),
-        },
+        headers,
       })
     } catch (e: any) {
       if (e?.name === 'AbortError') throw e
@@ -101,6 +178,7 @@ export class NovaClient {
     }
 
     if (!response.ok) {
+      if (response.status === 401 && opts.withCustomer) this.logout()
       const msg =
         (payload && (payload.message || payload.error)) ||
         `${response.status} ${response.statusText}`
@@ -115,9 +193,18 @@ export class NovaClient {
 
   async getShop(domain?: string): Promise<NovaShop> {
     if (this.devMode) return this.devShop
-
     const host = domain || (typeof window !== 'undefined' ? window.location.hostname : '')
-    return this.request<NovaShop>(`/shop?domain=${encodeURIComponent(host)}`)
+    const shop = await this.request<NovaShop & { publicKey?: string }>(
+      `/shop?domain=${encodeURIComponent(host)}`,
+    )
+    if (shop?.projectId && !this.projectId) {
+      this.projectId = shop.projectId
+      this.customerToken = loadStoredToken(shop.projectId)
+    }
+    if (shop?.publicKey && !this.projectKey) {
+      this.projectKey = shop.publicKey
+    }
+    return shop
   }
 
   async getProducts(projectId: string, category?: string): Promise<NovaProduct[]> {
@@ -126,15 +213,16 @@ export class NovaClient {
       return category ? all.filter((p) => p.category === category) : all
     }
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
-
     const params = category ? `?category=${encodeURIComponent(category)}` : ''
-    return this.request<NovaProduct[]>(`/${projectId}/products${params}`)
+    return this.request<NovaProduct[]>(`/${projectId}/products${params}`, {}, undefined, {
+      withKey: true,
+    })
   }
 
   async getCategories(projectId: string): Promise<string[]> {
     if (this.devMode) return [...new Set(this.devProducts.map((p) => p.category))]
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
-    return this.request<string[]>(`/${projectId}/categories`)
+    return this.request<string[]>(`/${projectId}/categories`, {}, undefined, { withKey: true })
   }
 
   async getProduct(projectId: string, productId: string): Promise<NovaProduct> {
@@ -146,18 +234,24 @@ export class NovaClient {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     return this.request<NovaProduct>(
       `/${projectId}/products/${encodeURIComponent(productId)}`,
+      {},
+      undefined,
+      { withKey: true },
     )
   }
 
   async getPaymentMethods(projectId: string): Promise<NovaPaymentMethod[]> {
     if (this.devMode) return this.devPaymentMethods
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
-    return this.request<NovaPaymentMethod[]>(`/${projectId}/payment-methods`)
+    return this.request<NovaPaymentMethod[]>(
+      `/${projectId}/payment-methods`,
+      {},
+      undefined,
+      { withKey: true },
+    )
   }
 
-  async setPreferences(
-    prefs: NovaPreferences,
-  ): Promise<{ ok: boolean } & NovaPreferences> {
+  async setPreferences(prefs: NovaPreferences): Promise<{ ok: boolean } & NovaPreferences> {
     if (this.devMode) return { ok: true, ...prefs }
     return this.request(`/preferences`, {
       method: 'POST',
@@ -165,15 +259,80 @@ export class NovaClient {
     })
   }
 
-  /**
-   * Creates a server-side order for a product and returns a `payUrl` to redirect to.
-   *
-   * Security:
-   *  - All inputs are validated client-side AND re-validated server-side.
-   *  - Price is computed server-side from the product record — never trusted from the client.
-   *  - Stock and payment-method whitelist are enforced server-side.
-   *  - Each call sends an `Idempotency-Key` header so retries don't create duplicate orders.
-   */
+  // ── Customer auth (email OTP) ────────────────────────────────────────
+  async requestOtp(projectId: string, email: string): Promise<{ ok: true; throttleSeconds?: number }> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (!email || !EMAIL_RE.test(email)) throw new NovaError('Invalid email', 400)
+    if (this.devMode) return { ok: true }
+    return this.request(
+      `/${projectId}/auth/request-otp`,
+      { method: 'POST', body: JSON.stringify({ email }) },
+      undefined,
+      { withKey: true },
+    )
+  }
+
+  async verifyOtp(projectId: string, email: string, code: string): Promise<NovaCustomer> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (!email || !EMAIL_RE.test(email)) throw new NovaError('Invalid email', 400)
+    if (!OTP_RE.test(String(code || ''))) throw new NovaError('Invalid code', 400)
+
+    if (this.devMode) {
+      const customer: NovaCustomer = { id: 'dev-customer', email, token: 'dev-token' }
+      this.customerToken = customer.token ?? null
+      this.projectId = projectId
+      persistToken(projectId, customer.token ?? null)
+      return customer
+    }
+
+    const result = await this.request<NovaCustomer>(
+      `/${projectId}/auth/verify-otp`,
+      { method: 'POST', body: JSON.stringify({ email, code }) },
+      undefined,
+      { withKey: true },
+    )
+    if (result?.token) {
+      this.customerToken = result.token
+      this.projectId = projectId
+      persistToken(projectId, result.token)
+    }
+    return result
+  }
+
+  async getCurrentCustomer(projectId: string): Promise<NovaCustomer> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (this.devMode) return { id: 'dev-customer', email: 'demo@example.com' }
+    return this.request<NovaCustomer>(`/${projectId}/customer/me`, {}, undefined, {
+      withKey: true,
+      withCustomer: true,
+    })
+  }
+
+  async getCustomerOrders(projectId: string): Promise<NovaCustomerOrder[]> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (this.devMode) return []
+    return this.request<NovaCustomerOrder[]>(
+      `/${projectId}/customer/orders`,
+      {},
+      undefined,
+      { withKey: true, withCustomer: true },
+    )
+  }
+
+  // ── Checkout token (anti-bot) ────────────────────────────────────────
+  private async ensureCheckoutToken(projectId: string): Promise<string> {
+    const now = Math.floor(Date.now() / 1000)
+    if (this.checkoutToken && this.checkoutToken.exp - 10 > now) return this.checkoutToken.token
+    const r = await this.request<{ token: string; exp: number }>(
+      `/${projectId}/checkout-token`,
+      { method: 'POST', body: '{}' },
+      undefined,
+      { withKey: true },
+    )
+    this.checkoutToken = r
+    return r.token
+  }
+
   async purchaseProduct(
     projectId: string,
     body: NovaPurchaseRequest,
@@ -213,6 +372,8 @@ export class NovaClient {
       }
     }
 
+    const checkoutToken = await this.ensureCheckoutToken(projectId)
+
     return this.request<NovaPurchaseResult>(
       `/${projectId}/orders`,
       {
@@ -227,19 +388,15 @@ export class NovaClient {
         }),
       },
       opts.signal,
+      { withKey: true, withCheckout: checkoutToken },
     )
   }
 
-  /**
-   * Returns sanitized status of a storefront order.
-   * After payment, polling this endpoint reveals when delivery has been completed
-   * and (for digital auto-delivery) the delivered content.
-   */
   async getOrder(
     projectId: string,
     orderId: string,
     signal?: AbortSignal,
-  ): Promise<import('./types').NovaOrderStatus> {
+  ): Promise<NovaOrderStatus> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     if (!UUID_RE.test(orderId)) throw new NovaError('Invalid orderId', 400)
 
@@ -267,13 +424,10 @@ export class NovaClient {
       `/${projectId}/orders/${encodeURIComponent(orderId)}`,
       { method: 'GET' },
       signal,
+      { withKey: true },
     )
   }
 
-  /**
-   * Polls the order until it reaches a terminal status (COMPLETED / FAILED / CANCELLED)
-   * or the timeout is reached. Designed for the post-redirect "thank-you" page.
-   */
   async waitForOrder(
     projectId: string,
     orderId: string,
@@ -281,26 +435,59 @@ export class NovaClient {
       intervalMs?: number
       timeoutMs?: number
       signal?: AbortSignal
-      onUpdate?: (status: import('./types').NovaOrderStatus) => void
+      onUpdate?: (status: NovaOrderStatus) => void
     } = {},
-  ): Promise<import('./types').NovaOrderStatus> {
+  ): Promise<NovaOrderStatus> {
     const interval = Math.max(1000, opts.intervalMs ?? 2500)
     const timeout = Math.max(interval, opts.timeoutMs ?? 5 * 60 * 1000)
     const start = Date.now()
     const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED'])
 
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       if (opts.signal?.aborted) throw new NovaError('Aborted', 0)
       const status = await this.getOrder(projectId, orderId, opts.signal)
       try {
         opts.onUpdate?.(status)
       } catch {
-        /* ignore listener errors */
+        /* ignore */
       }
       if (terminal.has(status.status)) return status
       if (Date.now() - start > timeout) return status
       await new Promise((r) => setTimeout(r, interval))
     }
+  }
+
+  // ── Support chat ─────────────────────────────────────────────────────
+  async getSupportChat(orderId: string): Promise<NovaSupportChat> {
+    if (!UUID_RE.test(orderId)) throw new NovaError('Invalid orderId', 400)
+    if (this.devMode) {
+      return { id: 'dev-chat', orderId, status: 'open', messages: [], rating: null }
+    }
+    return this.request<NovaSupportChat>(`/support-chat/${encodeURIComponent(orderId)}`)
+  }
+
+  async sendSupportMessage(chatId: string, text: string): Promise<NovaSupportMessage> {
+    if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
+    if (!text || typeof text !== 'string' || text.length > 4000) {
+      throw new NovaError('Invalid message', 400)
+    }
+    if (this.devMode) {
+      return { id: safeRandomId(), sender: 'customer', text, createdAt: new Date().toISOString() }
+    }
+    return this.request<NovaSupportMessage>(
+      `/support-chat/${encodeURIComponent(chatId)}/message`,
+      { method: 'POST', body: JSON.stringify({ text }) },
+    )
+  }
+
+  async rateSupportChat(chatId: string, rating: number): Promise<{ ok: true }> {
+    if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
+    const r = Number(rating)
+    if (!Number.isInteger(r) || r < 1 || r > 5) throw new NovaError('Rating must be 1..5', 400)
+    if (this.devMode) return { ok: true }
+    return this.request(
+      `/support-chat/${encodeURIComponent(chatId)}/rate`,
+      { method: 'POST', body: JSON.stringify({ rating: r }) },
+    )
   }
 }

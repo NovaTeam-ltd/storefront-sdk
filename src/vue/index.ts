@@ -1,4 +1,4 @@
-import { ref, shallowRef, readonly, watch, type App, type InjectionKey, inject } from 'vue'
+import { ref, shallowRef, readonly, watch, type App, type InjectionKey, inject, computed } from 'vue'
 import { NovaClient, applyTheme } from '../index'
 import type {
   NovaShop,
@@ -10,6 +10,9 @@ import type {
   NovaPurchaseResult,
   NovaPreferences,
   NovaOrderStatus,
+  NovaCustomer,
+  NovaCustomerOrder,
+  NovaSupportChat,
 } from '../types'
 
 const NOVA_KEY: InjectionKey<NovaContext> = Symbol('novahub')
@@ -321,4 +324,193 @@ export type {
   NovaPurchaseResult,
   NovaPreferences,
   NovaOrderStatus,
+  NovaCustomer,
+  NovaCustomerOrder,
+  NovaSupportChat,
+}
+
+// ── Customer auth (email OTP) ───────────────────────────────────────────
+export function useCustomer() {
+  const { client, shop } = useNovaContext()
+  const isAuthenticated = ref(client.isAuthenticated())
+  const customer = shallowRef<NovaCustomer | null>(null)
+  const requestingOtp = ref(false)
+  const verifying = ref(false)
+  const error = ref<string | null>(null)
+
+  function refreshAuthState() {
+    isAuthenticated.value = client.isAuthenticated()
+  }
+
+  async function requestOtp(email: string) {
+    const projectId = shop.value?.projectId
+    if (!projectId) throw new Error('Shop is not loaded yet')
+    requestingOtp.value = true
+    error.value = null
+    try {
+      return await client.requestOtp(projectId, email)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to request code'
+      throw e
+    } finally {
+      requestingOtp.value = false
+    }
+  }
+
+  async function verifyOtp(email: string, code: string) {
+    const projectId = shop.value?.projectId
+    if (!projectId) throw new Error('Shop is not loaded yet')
+    verifying.value = true
+    error.value = null
+    try {
+      const r = await client.verifyOtp(projectId, email, code)
+      customer.value = r
+      refreshAuthState()
+      return r
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Invalid code'
+      throw e
+    } finally {
+      verifying.value = false
+    }
+  }
+
+  async function loadMe() {
+    const projectId = shop.value?.projectId
+    if (!projectId || !client.isAuthenticated()) return null
+    try {
+      const r = await client.getCurrentCustomer(projectId)
+      customer.value = r
+      return r
+    } catch (e) {
+      refreshAuthState()
+      return null
+    }
+  }
+
+  function logout() {
+    client.logout()
+    customer.value = null
+    refreshAuthState()
+  }
+
+  watch(shop, (s) => {
+    if (s) loadMe()
+  }, { immediate: true })
+
+  return {
+    customer: readonly(customer),
+    isAuthenticated: readonly(isAuthenticated),
+    requestingOtp: readonly(requestingOtp),
+    verifying: readonly(verifying),
+    error: readonly(error),
+    requestOtp,
+    verifyOtp,
+    logout,
+    refresh: loadMe,
+  }
+}
+
+export function useOrderHistory() {
+  const { client, shop } = useNovaContext()
+  const orders = shallowRef<NovaCustomerOrder[]>([])
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+
+  async function load() {
+    const projectId = shop.value?.projectId
+    if (!projectId || !client.isAuthenticated()) {
+      orders.value = []
+      return
+    }
+    loading.value = true
+    error.value = null
+    try {
+      orders.value = await client.getCustomerOrders(projectId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to load orders'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  watch(shop, (s) => { if (s) load() }, { immediate: true })
+
+  return {
+    orders: readonly(orders),
+    loading: readonly(loading),
+    error: readonly(error),
+    reload: load,
+  }
+}
+
+export function useSupportChat(orderId: string, options: { autoPoll?: boolean; intervalMs?: number } = {}) {
+  const { client } = useNovaContext()
+  const chat = shallowRef<NovaSupportChat | null>(null)
+  const loading = ref(false)
+  const sending = ref(false)
+  const error = ref<string | null>(null)
+  let stop = false
+
+  async function load() {
+    loading.value = true
+    error.value = null
+    try {
+      chat.value = await client.getSupportChat(orderId)
+      return chat.value
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to load chat'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function send(text: string) {
+    if (!chat.value) await load()
+    const id = chat.value?.id
+    if (!id) throw new Error('Chat unavailable')
+    sending.value = true
+    try {
+      const msg = await client.sendSupportMessage(id, text)
+      chat.value = chat.value
+        ? { ...chat.value, messages: [...chat.value.messages, msg] }
+        : chat.value
+      return msg
+    } finally {
+      sending.value = false
+    }
+  }
+
+  async function rate(rating: number) {
+    if (!chat.value) await load()
+    const id = chat.value?.id
+    if (!id) throw new Error('Chat unavailable')
+    return client.rateSupportChat(id, rating)
+  }
+
+  function startPolling() {
+    const interval = Math.max(2000, options.intervalMs ?? 5000)
+    ;(async () => {
+      while (!stop) {
+        try { await load() } catch { /* ignore */ }
+        await new Promise((r) => setTimeout(r, interval))
+      }
+    })()
+  }
+
+  load().then(() => {
+    if (options.autoPoll !== false) startPolling()
+  })
+
+  return {
+    chat: readonly(chat),
+    loading: readonly(loading),
+    sending: readonly(sending),
+    error: readonly(error),
+    refresh: load,
+    send,
+    rate,
+    stop: () => { stop = true },
+    messageCount: computed(() => chat.value?.messages.length ?? 0),
+  }
 }
