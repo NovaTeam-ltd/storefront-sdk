@@ -169,3 +169,54 @@ export interface NovaSupportChat {
   messages: NovaSupportMessage[]
   rating: number | null
 }
+
+export interface NovaSteamTopupRequest {
+  /** Steam login (NOT a nickname). 2..64 chars [A-Za-z0-9_\-.]. */
+  login: string
+  /** Top-up amount in RUB (the "₽" the user wants in their Steam wallet). 50..100000. */
+  amount: number
+  /** Region hint (e.g. 'russia', 'kazakhstan'). Optional. */
+  region?: string
+  email?: string
+  /** Reserved for future multi-method support — currently the bot path uses CryptoBot. */
+  paymentMethod?: NovaPaymentMethodId
+}
+
+export interface NovaSteamTopupResult {
+  orderId: string
+  payUrl?: string | null
+  totalPay: number
+}
+
+export interface NovaProxyGbOption {
+  gb: number
+  priceRub: number
+  priceUsd: number
+}
+
+export interface NovaProxyPricing {
+  proxy: Record<string, { gbOptions: NovaProxyGbOption[] }>
+  vpn: Array<{ durationDays: number; priceRub: number; free?: boolean }>
+  countries: Array<{ code: string; name: string; flag?: string }>
+  gbOptions: number[]
+}
+
+export interface NovaProxyOrderRequest {
+  proxyType: 'datacenter' | 'residential' | 'mobile' | 'premium' | (string & {})
+  gbAmount: number
+  country?: string
+  email?: string
+  paymentMethod?: string
+}
+
+export interface NovaVpnOrderRequest {
+  durationDays: 1 | 30 | 90 | 180 | 365 | (number & {})
+  email?: string
+  paymentMethod?: string
+}
+
+export type NovaSupportChatStreamEvent =
+  | { type: 'open'; chatId: string }
+  | { type: 'heartbeat'; t: number }
+  | { type: 'message'; message: NovaSupportMessage }
+  | { type: 'status'; status: string; rating?: number | null }

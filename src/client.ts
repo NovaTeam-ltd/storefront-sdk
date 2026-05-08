@@ -12,6 +12,12 @@ import type {
   NovaCustomerOrder,
   NovaSupportChat,
   NovaSupportMessage,
+  NovaSteamTopupRequest,
+  NovaSteamTopupResult,
+  NovaProxyPricing,
+  NovaProxyOrderRequest,
+  NovaVpnOrderRequest,
+  NovaSupportChatStreamEvent,
 } from './types'
 import { MOCK_SHOP, MOCK_PRODUCTS, MOCK_PAYMENT_METHODS } from './mock'
 
@@ -20,6 +26,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_\-]{16,128}$/
 const PROJECT_KEY_RE = /^nv_pk_[A-Za-z0-9_\-]{8,128}$/
 const OTP_RE = /^\d{4,8}$/
+const STEAM_LOGIN_RE = /^[A-Za-z0-9_\-.]{2,64}$/
 const MAX_QUANTITY = 99
 const CUSTOMER_TOKEN_KEY = 'novahub:customer-token'
 
@@ -457,6 +464,120 @@ export class NovaClient {
     }
   }
 
+  // ── Steam top-up ─────────────────────────────────────────────────────
+  /**
+   * Create a Steam wallet top-up order. Mirrors the Telegram bot flow:
+   * `login` is the buyer's Steam login (NOT a nickname), `amount` is the RUB
+   * amount that should land on the wallet (the platform adds its markup on top).
+   * Returns a CryptoBot pay URL the caller must redirect to.
+   */
+  async purchaseSteamTopup(
+    projectId: string,
+    body: NovaSteamTopupRequest,
+  ): Promise<NovaSteamTopupResult> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const login = String(body?.login || '').trim()
+    if (!STEAM_LOGIN_RE.test(login)) {
+      throw new NovaError('Invalid Steam login', 400)
+    }
+    const amount = Number(body?.amount)
+    if (!Number.isFinite(amount) || amount < 50 || amount > 100000) {
+      throw new NovaError('Amount must be between 50 and 100000', 400)
+    }
+    const region = body?.region ? String(body.region).slice(0, 32) : undefined
+    const email = body?.email?.trim() || undefined
+    if (email && !EMAIL_RE.test(email)) throw new NovaError('Invalid email', 400)
+
+    if (this.devMode) {
+      return {
+        orderId: `dev-${safeRandomId().slice(0, 12)}`,
+        payUrl: 'https://example.com/pay/dev',
+        totalPay: Math.ceil(amount * 1.1),
+      }
+    }
+
+    const checkoutToken = await this.ensureCheckoutToken(projectId)
+    return this.request<NovaSteamTopupResult>(
+      `/${projectId}/steam-topup`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ login, amount, region, email }),
+      },
+      undefined,
+      { withKey: true, withCheckout: checkoutToken },
+    )
+  }
+
+  // ── Proxy / VPN ──────────────────────────────────────────────────────
+  async getProxyPricing(projectId: string): Promise<NovaProxyPricing> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (this.devMode) {
+      return {
+        proxy: { datacenter: { gbOptions: [{ gb: 1, priceRub: 90, priceUsd: 1 }] } },
+        vpn: [{ durationDays: 30, priceRub: 297 }],
+        countries: [{ code: 'US', name: 'United States', flag: '🇺🇸' }],
+        gbOptions: [1, 5, 10, 25, 50, 100],
+      }
+    }
+    return this.request<NovaProxyPricing>(`/${projectId}/proxy/pricing`, {}, undefined, {
+      withKey: true,
+    })
+  }
+
+  async createProxyOrder(
+    projectId: string,
+    body: NovaProxyOrderRequest,
+  ): Promise<{ id: string; priceRub: number; status: string } & Record<string, any>> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const proxyType = String(body?.proxyType || '').trim()
+    if (!/^[a-z]{3,32}$/.test(proxyType)) throw new NovaError('Invalid proxyType', 400)
+    const gb = Number(body?.gbAmount)
+    if (!Number.isInteger(gb) || gb < 1 || gb > 10000) {
+      throw new NovaError('gbAmount must be 1..10000', 400)
+    }
+    const country = body?.country ? String(body.country).slice(0, 8).toUpperCase() : undefined
+    const email = body?.email?.trim() || undefined
+    if (email && !EMAIL_RE.test(email)) throw new NovaError('Invalid email', 400)
+
+    if (this.devMode) {
+      return { id: `dev-${safeRandomId().slice(0, 8)}`, priceRub: gb * 90, status: 'pending' }
+    }
+    return this.request(
+      `/${projectId}/proxy/order`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ proxyType, gbAmount: gb, country, email, paymentMethod: body?.paymentMethod }),
+      },
+      undefined,
+      { withKey: true },
+    )
+  }
+
+  async createVpnOrder(
+    projectId: string,
+    body: NovaVpnOrderRequest,
+  ): Promise<{ id: string; priceRub: number; status: string } & Record<string, any>> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const days = Number(body?.durationDays)
+    if (!Number.isInteger(days) || days < 1 || days > 730) {
+      throw new NovaError('durationDays must be 1..730', 400)
+    }
+    const email = body?.email?.trim() || undefined
+    if (email && !EMAIL_RE.test(email)) throw new NovaError('Invalid email', 400)
+    if (this.devMode) {
+      return { id: `dev-${safeRandomId().slice(0, 8)}`, priceRub: days === 1 ? 0 : 297, status: 'active' }
+    }
+    return this.request(
+      `/${projectId}/vpn/order`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ durationDays: days, email, paymentMethod: body?.paymentMethod }),
+      },
+      undefined,
+      { withKey: true },
+    )
+  }
+
   // ── Support chat ─────────────────────────────────────────────────────
   async getSupportChat(orderId: string): Promise<NovaSupportChat> {
     if (!UUID_RE.test(orderId)) throw new NovaError('Invalid orderId', 400)
@@ -464,6 +585,44 @@ export class NovaClient {
       return { id: 'dev-chat', orderId, status: 'open', messages: [], rating: null }
     }
     return this.request<NovaSupportChat>(`/support-chat/${encodeURIComponent(orderId)}`)
+  }
+
+  /**
+   * Subscribe to realtime support-chat events via Server-Sent Events.
+   * Returns a function that closes the stream. Falls back to a no-op in
+   * environments without `EventSource` (e.g. SSR / dev mode).
+   */
+  streamSupportChat(
+    chatId: string,
+    listeners: {
+      onEvent?: (event: NovaSupportChatStreamEvent) => void
+      onMessage?: (message: NovaSupportMessage) => void
+      onStatus?: (status: string, rating?: number | null) => void
+      onOpen?: () => void
+      onError?: (err: Event | Error) => void
+    } = {},
+  ): () => void {
+    if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
+    if (this.devMode || typeof window === 'undefined' || typeof (window as any).EventSource === 'undefined') {
+      return () => {}
+    }
+    const url = `${this.apiBase}/support-chat/${encodeURIComponent(chatId)}/stream`
+    const es = new (window as any).EventSource(url, {
+      withCredentials: this.credentials === 'include',
+    }) as EventSource
+    es.onopen = () => listeners.onOpen?.()
+    es.onerror = (e) => listeners.onError?.(e)
+    es.onmessage = (msg: MessageEvent) => {
+      let data: NovaSupportChatStreamEvent | null = null
+      try { data = JSON.parse(msg.data as string) } catch { return }
+      if (!data) return
+      listeners.onEvent?.(data)
+      if (data.type === 'message') listeners.onMessage?.(data.message)
+      else if (data.type === 'status') listeners.onStatus?.(data.status, data.rating)
+    }
+    return () => {
+      try { es.close() } catch { /* ignore */ }
+    }
   }
 
   async sendSupportMessage(chatId: string, text: string): Promise<NovaSupportMessage> {
