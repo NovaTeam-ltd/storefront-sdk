@@ -18,6 +18,15 @@ import type {
   NovaProxyOrderRequest,
   NovaVpnOrderRequest,
   NovaSupportChatStreamEvent,
+  NovaStarsPricing,
+  NovaPremiumPricing,
+  NovaSteamPricing,
+  NovaSteamGamesCatalog,
+  NovaStarsOrderRequest,
+  NovaPremiumOrderRequest,
+  NovaSteamTopupV2Request,
+  NovaFragmentOrderResult,
+  NovaBotOrderInfo,
 } from './types'
 import { MOCK_SHOP, MOCK_PRODUCTS, MOCK_PAYMENT_METHODS } from './mock'
 
@@ -506,6 +515,193 @@ export class NovaClient {
       undefined,
       { withKey: true, withCheckout: checkoutToken },
     )
+  }
+
+  // ── Telegram Stars / Premium / Steam V2 (multi-PSP) ─────────────────
+
+  async getStarsPricing(projectId: string): Promise<NovaStarsPricing> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (this.devMode) {
+      return {
+        pricePerStar: 1.5, currency: 'RUB', min: 50, max: 1000000,
+        packages: [50, 100, 250, 500, 1000, 2500].map(qty => ({ qty, priceRub: Math.ceil(qty * 1.5) })),
+        paymentMethods: this.devPaymentMethods,
+      }
+    }
+    return this.request<NovaStarsPricing>(`/${projectId}/stars-pricing`, {}, undefined, { withKey: true })
+  }
+
+  async getPremiumPricing(projectId: string): Promise<NovaPremiumPricing> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (this.devMode) {
+      return {
+        plans: [
+          { months: 3, priceRub: 990, perMonthRub: 330 },
+          { months: 6, priceRub: 1790, perMonthRub: 298 },
+          { months: 12, priceRub: 2990, perMonthRub: 249 },
+        ],
+        currency: 'RUB',
+        paymentMethods: this.devPaymentMethods,
+      }
+    }
+    return this.request<NovaPremiumPricing>(`/${projectId}/premium-pricing`, {}, undefined, { withKey: true })
+  }
+
+  async getSteamPricing(projectId: string): Promise<NovaSteamPricing> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (this.devMode) {
+      return {
+        currencies: ['RUB', 'KZT', 'UAH'],
+        min: { RUB: 100, KZT: 500, UAH: 50 },
+        max: { RUB: 100000, KZT: 500000, UAH: 50000 },
+        steamMarkup: 0,
+        paymentMethods: this.devPaymentMethods,
+      }
+    }
+    return this.request<NovaSteamPricing>(`/${projectId}/steam-pricing`, {}, undefined, { withKey: true })
+  }
+
+  async getSteamGames(projectId: string, opts: { limit?: number; q?: string } = {}): Promise<NovaSteamGamesCatalog> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const params = new URLSearchParams()
+    if (opts.limit) params.set('limit', String(opts.limit))
+    if (opts.q) params.set('q', String(opts.q))
+    const qs = params.toString()
+    if (this.devMode) {
+      return {
+        items: [
+          { serviceId: 9001, name: 'Counter-Strike 2 (Prime)', category: 'Valve', priceRub: 1490, stock: 99 },
+          { serviceId: 9002, name: 'Dota 2 — Battle Pass', category: 'Valve', priceRub: 990, stock: 50 },
+          { serviceId: 9003, name: 'Cyberpunk 2077', category: 'CD Projekt', priceRub: 2790, stock: 12 },
+        ],
+        total: 3,
+      }
+    }
+    return this.request<NovaSteamGamesCatalog>(
+      `/${projectId}/steam-games${qs ? `?${qs}` : ''}`,
+      {},
+      undefined,
+      { withKey: true },
+    )
+  }
+
+  private validateUsername(username: string): string {
+    const u = String(username || '').replace(/^@/, '').trim()
+    if (!/^[A-Za-z0-9_]{5,32}$/.test(u)) throw new NovaError('Invalid Telegram username (5–32 chars, A-Z 0-9 _)', 400)
+    return u
+  }
+
+  async purchaseStars(projectId: string, body: NovaStarsOrderRequest): Promise<NovaFragmentOrderResult> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const username = this.validateUsername(body?.username || '')
+    const quantity = Number(body?.quantity)
+    if (!Number.isInteger(quantity) || quantity < 50) throw new NovaError('Quantity must be ≥ 50', 400)
+    if (!body?.paymentMethod) throw new NovaError('paymentMethod is required', 400)
+    if (body?.email && !EMAIL_RE.test(body.email)) throw new NovaError('Invalid email', 400)
+
+    if (this.devMode) {
+      return {
+        orderId: `dev-${safeRandomId().slice(0, 12)}`, externalOrderId: 'DEV',
+        payUrl: 'https://example.com/pay/dev', paymentMethod: body.paymentMethod,
+        totalRub: Math.ceil(quantity * 1.5), totalPay: Math.ceil(quantity * 1.5), currency: 'RUB',
+      }
+    }
+    const checkoutToken = await this.ensureCheckoutToken(projectId)
+    return this.request<NovaFragmentOrderResult>(
+      `/${projectId}/stars-order`,
+      { method: 'POST', body: JSON.stringify({ username, quantity, paymentMethod: body.paymentMethod, email: body.email }) },
+      undefined,
+      { withKey: true, withCheckout: checkoutToken },
+    )
+  }
+
+  async purchasePremium(projectId: string, body: NovaPremiumOrderRequest): Promise<NovaFragmentOrderResult> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const username = this.validateUsername(body?.username || '')
+    const months = Number(body?.months)
+    if (![3, 6, 12].includes(months)) throw new NovaError('Months must be 3, 6 or 12', 400)
+    if (!body?.paymentMethod) throw new NovaError('paymentMethod is required', 400)
+    if (body?.email && !EMAIL_RE.test(body.email)) throw new NovaError('Invalid email', 400)
+
+    if (this.devMode) {
+      return {
+        orderId: `dev-${safeRandomId().slice(0, 12)}`, externalOrderId: 'DEV',
+        payUrl: 'https://example.com/pay/dev', paymentMethod: body.paymentMethod,
+        totalRub: 990, totalPay: 990, currency: 'RUB',
+      }
+    }
+    const checkoutToken = await this.ensureCheckoutToken(projectId)
+    return this.request<NovaFragmentOrderResult>(
+      `/${projectId}/premium-order`,
+      { method: 'POST', body: JSON.stringify({ username, months, paymentMethod: body.paymentMethod, email: body.email }) },
+      undefined,
+      { withKey: true, withCheckout: checkoutToken },
+    )
+  }
+
+  async purchaseSteamTopupV2(projectId: string, body: NovaSteamTopupV2Request): Promise<NovaFragmentOrderResult> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const login = String(body?.login || '').trim()
+    if (!STEAM_LOGIN_RE.test(login)) throw new NovaError('Invalid Steam login', 400)
+    const amount = Number(body?.amount)
+    if (!Number.isFinite(amount) || amount <= 0) throw new NovaError('Invalid amount', 400)
+    if (!body?.paymentMethod) throw new NovaError('paymentMethod is required', 400)
+    const currency = (body?.currency || 'RUB').toUpperCase()
+    if (!['RUB', 'KZT', 'UAH'].includes(currency)) throw new NovaError('Unsupported currency', 400)
+    if (body?.email && !EMAIL_RE.test(body.email)) throw new NovaError('Invalid email', 400)
+
+    if (this.devMode) {
+      return {
+        orderId: `dev-${safeRandomId().slice(0, 12)}`, externalOrderId: 'DEV',
+        payUrl: 'https://example.com/pay/dev', paymentMethod: body.paymentMethod,
+        totalRub: Math.ceil(amount), totalPay: Math.ceil(amount), currency: 'RUB',
+      }
+    }
+    const checkoutToken = await this.ensureCheckoutToken(projectId)
+    return this.request<NovaFragmentOrderResult>(
+      `/${projectId}/steam-topup-v2`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ login, amount, currency, paymentMethod: body.paymentMethod, email: body.email }),
+      },
+      undefined,
+      { withKey: true, withCheckout: checkoutToken },
+    )
+  }
+
+  async getBotOrder(projectId: string, orderId: string, signal?: AbortSignal): Promise<NovaBotOrderInfo> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    if (!UUID_RE.test(orderId)) throw new NovaError('Invalid orderId', 400)
+    if (this.devMode) {
+      return {
+        orderId, externalOrderId: 'DEV', kind: 'stars', status: 'completed',
+        productName: '500 Telegram Stars', totalRub: 750, paymentMethod: 'cryptobot',
+        createdAt: new Date().toISOString(),
+        details: { username: 'demo', login: null, months: null, currency: null, originalAmount: null, txHash: '0xDEMO', error: null, deliveredAt: new Date().toISOString() },
+      }
+    }
+    return this.request<NovaBotOrderInfo>(
+      `/${projectId}/bot-orders/${encodeURIComponent(orderId)}`,
+      { method: 'GET' }, signal, { withKey: true },
+    )
+  }
+
+  async waitForBotOrder(
+    projectId: string, orderId: string,
+    opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal; onUpdate?: (s: NovaBotOrderInfo) => void } = {},
+  ): Promise<NovaBotOrderInfo> {
+    const interval = Math.max(1000, opts.intervalMs ?? 3000)
+    const timeout = Math.max(interval, opts.timeoutMs ?? 10 * 60 * 1000)
+    const start = Date.now()
+    const terminal = new Set<NovaBotOrderInfo['status']>(['completed', 'failed', 'cancelled'])
+    while (true) {
+      if (opts.signal?.aborted) throw new NovaError('Aborted', 0)
+      const s = await this.getBotOrder(projectId, orderId, opts.signal)
+      try { opts.onUpdate?.(s) } catch {}
+      if (terminal.has(s.status)) return s
+      if (Date.now() - start > timeout) return s
+      await new Promise(r => setTimeout(r, interval))
+    }
   }
 
   // ── Proxy / VPN ──────────────────────────────────────────────────────

@@ -188,6 +188,110 @@ export interface NovaSteamTopupResult {
   totalPay: number
 }
 
+// ── Telegram Stars / Premium / Steam (multi-PSP via BotOrder) ───────────
+
+export interface NovaStarsPackage { qty: number; priceRub: number }
+
+export interface NovaStarsPricing {
+  pricePerStar: number
+  currency: string
+  min: number
+  max: number
+  packages: NovaStarsPackage[]
+  paymentMethods: NovaPaymentMethod[]
+}
+
+export interface NovaPremiumPlan { months: 3 | 6 | 12; priceRub: number; perMonthRub: number }
+
+export interface NovaPremiumPricing {
+  plans: NovaPremiumPlan[]
+  currency: string
+  paymentMethods: NovaPaymentMethod[]
+}
+
+export interface NovaSteamPricing {
+  currencies: readonly string[]
+  min: Record<string, number>
+  max: Record<string, number>
+  steamMarkup: number
+  paymentMethods: NovaPaymentMethod[]
+}
+
+export interface NovaSteamGame {
+  serviceId: number
+  name: string
+  category: string
+  priceRub: number
+  stock: number
+}
+
+export interface NovaSteamGamesCatalog {
+  items: NovaSteamGame[]
+  total: number
+}
+
+export interface NovaStarsOrderRequest {
+  username: string
+  quantity: number
+  paymentMethod: string
+  email?: string
+}
+
+export interface NovaPremiumOrderRequest {
+  username: string
+  months: 3 | 6 | 12
+  paymentMethod: string
+  email?: string
+}
+
+export interface NovaSteamTopupV2Request {
+  login: string
+  amount: number
+  currency?: 'RUB' | 'KZT' | 'UAH'
+  paymentMethod: string
+  email?: string
+}
+
+export interface NovaFragmentOrderResult {
+  orderId: string
+  externalOrderId: string
+  payUrl: string
+  paymentMethod: string
+  totalRub: number
+  totalPay: number
+  currency: string
+}
+
+export type NovaBotOrderStatus =
+  | 'pending'
+  | 'awaiting_payment'
+  | 'paid'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface NovaBotOrderInfo {
+  orderId: string
+  externalOrderId: string
+  kind: 'stars' | 'premium' | 'steam-topup' | 'product'
+  status: NovaBotOrderStatus
+  productName: string
+  totalRub: number
+  paymentMethod: string | null
+  createdAt: string
+  details: {
+    username: string | null
+    login: string | null
+    months: number | null
+    currency: string | null
+    originalAmount: number | null
+    txHash: string | null
+    error: string | null
+    deliveredAt: string | null
+  }
+}
+
 export interface NovaProxyGbOption {
   gb: number
   priceRub: number

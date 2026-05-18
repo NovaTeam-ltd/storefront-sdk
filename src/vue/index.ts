@@ -19,6 +19,15 @@ import type {
   NovaProxyPricing,
   NovaProxyOrderRequest,
   NovaVpnOrderRequest,
+  NovaStarsPricing,
+  NovaPremiumPricing,
+  NovaSteamPricing,
+  NovaSteamGamesCatalog,
+  NovaStarsOrderRequest,
+  NovaPremiumOrderRequest,
+  NovaSteamTopupV2Request,
+  NovaFragmentOrderResult,
+  NovaBotOrderInfo,
 } from '../types'
 
 const NOVA_KEY: InjectionKey<NovaContext> = Symbol('novahub')
@@ -593,6 +602,115 @@ export function useSteamTopup() {
     error: readonly(error),
     result: readonly(result),
   }
+}
+
+// ── Telegram Stars / Premium / Steam V2 (multi-PSP) ──────────────────
+
+function makePricingComposable<T>(fetcher: (client: NovaClient, projectId: string) => Promise<T>) {
+  return () => {
+    const { client, shop } = useNovaContext()
+    const data = shallowRef<T | null>(null)
+    const loading = ref(false)
+    const error = ref<string | null>(null)
+    async function refresh() {
+      const projectId = shop.value?.projectId
+      if (!projectId) return null
+      loading.value = true; error.value = null
+      try { const r = await fetcher(client, projectId); data.value = r; return r }
+      catch (e) { error.value = e instanceof Error ? e.message : 'Failed to load'; throw e }
+      finally { loading.value = false }
+    }
+    watch(shop, (s) => { if (s) refresh() }, { immediate: true })
+    return { data: readonly(data) as any, loading: readonly(loading), error: readonly(error), refresh }
+  }
+}
+
+export const useStarsPricing = makePricingComposable<NovaStarsPricing>((c, p) => c.getStarsPricing(p))
+export const usePremiumPricing = makePricingComposable<NovaPremiumPricing>((c, p) => c.getPremiumPricing(p))
+export const useSteamPricing = makePricingComposable<NovaSteamPricing>((c, p) => c.getSteamPricing(p))
+
+export function useSteamGames(opts: { limit?: number; q?: string } = {}) {
+  const { client, shop } = useNovaContext()
+  const data = shallowRef<NovaSteamGamesCatalog | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  async function refresh() {
+    const projectId = shop.value?.projectId
+    if (!projectId) return null
+    loading.value = true; error.value = null
+    try {
+      const r = await client.getSteamGames(projectId, opts)
+      data.value = r
+      return r
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to load games'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+  watch(shop, (s) => { if (s) refresh() }, { immediate: true })
+  return { data: readonly(data) as any, loading: readonly(loading), error: readonly(error), refresh }
+}
+
+function makeOrderComposable<Body>(call: (client: NovaClient, projectId: string, body: Body) => Promise<NovaFragmentOrderResult>) {
+  return () => {
+    const { client, shop } = useNovaContext()
+    const loading = ref(false)
+    const error = ref<string | null>(null)
+    const result = shallowRef<NovaFragmentOrderResult | null>(null)
+    async function submit(body: Body): Promise<NovaFragmentOrderResult> {
+      const projectId = shop.value?.projectId
+      if (!projectId) throw new Error('Shop is not loaded yet')
+      loading.value = true; error.value = null
+      try { const r = await call(client, projectId, body); result.value = r; return r }
+      catch (e) { error.value = e instanceof Error ? e.message : 'Order failed'; throw e }
+      finally { loading.value = false }
+    }
+    return { submit, loading: readonly(loading), error: readonly(error), result: readonly(result) as any }
+  }
+}
+
+export const useStarsPurchase = makeOrderComposable<NovaStarsOrderRequest>((c, p, b) => c.purchaseStars(p, b))
+export const usePremiumPurchase = makeOrderComposable<NovaPremiumOrderRequest>((c, p, b) => c.purchasePremium(p, b))
+export const useSteamTopupV2 = makeOrderComposable<NovaSteamTopupV2Request>((c, p, b) => c.purchaseSteamTopupV2(p, b))
+
+export function useBotOrder(orderId: string, options: { autoPoll?: boolean; intervalMs?: number; timeoutMs?: number } = {}) {
+  const { client, shop } = useNovaContext()
+  const order = shallowRef<NovaBotOrderInfo | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  let stop = false
+
+  async function fetchOnce() {
+    const projectId = shop.value?.projectId
+    if (!projectId) return null
+    loading.value = true; error.value = null
+    try { const r = await client.getBotOrder(projectId, orderId); order.value = r; return r }
+    catch (e) { error.value = e instanceof Error ? e.message : 'Failed to load order'; throw e }
+    finally { loading.value = false }
+  }
+
+  async function poll() {
+    const projectId = shop.value?.projectId
+    if (!projectId) return
+    const terminal = new Set(['completed', 'failed', 'cancelled'])
+    const interval = Math.max(1500, options.intervalMs ?? 3000)
+    const deadline = Date.now() + Math.max(interval, options.timeoutMs ?? 10 * 60 * 1000)
+    while (!stop) {
+      try { const r = await fetchOnce(); if (r && terminal.has(r.status)) return r } catch {}
+      if (Date.now() > deadline) return
+      await new Promise(res => setTimeout(res, interval))
+    }
+  }
+
+  if (options.autoPoll !== false) {
+    watch(shop, (s) => { if (s) poll() }, { immediate: true })
+  } else {
+    watch(shop, (s) => { if (s) fetchOnce() }, { immediate: true })
+  }
+
+  return { order: readonly(order) as any, loading: readonly(loading), error: readonly(error), refresh: fetchOnce, stop: () => { stop = true } }
 }
 
 // ── Proxy / VPN ───────────────────────────────────────────────────────
