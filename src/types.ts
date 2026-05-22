@@ -17,6 +17,8 @@ export interface NovaVisitor {
 
 export interface NovaShop {
   projectId: string
+  /** Public key (`nv_pk_…`) — аутентификация запросов SDK к storefront API. */
+  publicKey?: string
   name: string
   template: string
   primaryColor: string
@@ -29,6 +31,14 @@ export interface NovaShop {
   locale?: string
   ogImage?: string | null
   enabledPaymentMethods?: NovaPaymentMethodId[]
+  /** Web analytics tags (GA4, Yandex Metrika, FB Pixel, VK, TikTok). */
+  analytics?: {
+    gaTrackingId?: string | null
+    ymCounterId?: string | null
+    fbPixelId?: string | null
+    vkPixelId?: string | null
+    tiktokPixelId?: string | null
+  }
   visitor?: NovaVisitor
 }
 
