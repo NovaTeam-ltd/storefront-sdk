@@ -3,8 +3,11 @@ export { applyTheme } from './theme'
 export { MOCK_SHOP, MOCK_PRODUCTS, MOCK_PAYMENT_METHODS } from './mock'
 export type {
   NovaShop,
+  NovaAttribution,
   NovaProduct,
   NovaSDKConfig,
+  NovaTrackMeta,
+  NovaTrackType,
   NovaVisitor,
   NovaPaymentMethod,
   NovaPaymentMethodId,

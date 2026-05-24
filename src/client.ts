@@ -1,7 +1,10 @@
 import type {
   NovaShop,
+  NovaAttribution,
   NovaProduct,
   NovaSDKConfig,
+  NovaTrackMeta,
+  NovaTrackType,
   NovaPaymentMethod,
   NovaPurchaseRequest,
   NovaPurchaseOptions,
@@ -38,6 +41,8 @@ const OTP_RE = /^\d{4,8}$/
 const STEAM_LOGIN_RE = /^[A-Za-z0-9_\-.]{2,64}$/
 const MAX_QUANTITY = 99
 const CUSTOMER_TOKEN_KEY = 'novahub:customer-token'
+const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'] as const
+const CLICK_ID_KEYS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'yclid', 'msclkid'] as const
 
 function safeRandomId(): string {
   if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
@@ -70,6 +75,26 @@ function persistToken(projectId: string, token: string | null) {
   }
 }
 
+function browserPath(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`
+}
+
+function appendBrowserAttribution(params: URLSearchParams) {
+  if (typeof window === 'undefined') return
+  const current = new URLSearchParams(window.location.search)
+  params.set('landingPath', browserPath() || '/')
+  if (document.referrer) params.set('referrer', document.referrer)
+  for (const key of UTM_KEYS) {
+    const value = current.get(key)
+    if (value) params.set(key, value)
+  }
+  for (const key of CLICK_ID_KEYS) {
+    const value = current.get(key)
+    if (value) params.set(key, value)
+  }
+}
+
 export class NovaError extends Error {
   status: number
   details?: unknown
@@ -92,6 +117,9 @@ export class NovaClient {
   private projectId: string | null
   private customerToken: string | null
   private checkoutToken: { token: string; exp: number } | null = null
+  private visitorId: string | null = null
+  private attribution: NovaAttribution | null = null
+  private pageviews = new Set<string>()
 
   constructor(config: NovaSDKConfig = {}) {
     this.apiBase = (config.apiBase || '/api/storefront').replace(/\/+$/, '')
@@ -152,6 +180,7 @@ export class NovaClient {
     init: RequestInit = {},
     signal?: AbortSignal,
     opts: { withKey?: boolean; withCustomer?: boolean; withCheckout?: string } = {},
+    baseOverride?: string,
   ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
@@ -172,7 +201,7 @@ export class NovaClient {
 
     let response: Response
     try {
-      response = await fetch(`${this.apiBase}${path}`, {
+      response = await fetch(`${baseOverride || this.apiBase}${path}`, {
         ...init,
         signal: signal ?? init.signal,
         credentials: this.credentials,
@@ -210,8 +239,10 @@ export class NovaClient {
   async getShop(domain?: string): Promise<NovaShop> {
     if (this.devMode) return this.devShop
     const host = domain || (typeof window !== 'undefined' ? window.location.hostname : '')
+    const params = new URLSearchParams({ domain: host })
+    appendBrowserAttribution(params)
     const shop = await this.request<NovaShop & { publicKey?: string }>(
-      `/shop?domain=${encodeURIComponent(host)}`,
+      `/shop?${params.toString()}`,
     )
     if (shop?.projectId && !this.projectId) {
       this.projectId = shop.projectId
@@ -220,7 +251,48 @@ export class NovaClient {
     if (shop?.publicKey && !this.projectKey) {
       this.projectKey = shop.publicKey
     }
+    this.visitorId = shop.visitor?.id || null
+    this.attribution = shop.visitor?.attribution || null
+    this.trackInitialPageview(shop)
     return shop
+  }
+
+  private trackInitialPageview(shop: NovaShop) {
+    if (!shop?.projectId || typeof window === 'undefined') return
+    const path = browserPath() || '/'
+    const key = `${shop.projectId}:${path}`
+    if (this.pageviews.has(key)) return
+    this.pageviews.add(key)
+    this.track('pageview', { projectId: shop.projectId, path, referrer: document.referrer }).catch(() => {})
+  }
+
+  async track(type: NovaTrackType, meta: NovaTrackMeta = {}): Promise<{ ok: boolean }> {
+    if (this.devMode) return { ok: true }
+    const projectId = meta.projectId || this.projectId
+    if (!projectId || !UUID_RE.test(projectId)) throw new NovaError('projectId is required for analytics', 400)
+    const path = meta.path || browserPath()
+    const referrer = meta.referrer || (typeof document !== 'undefined' ? document.referrer : undefined)
+    const base = this.apiBase.replace(/\/storefront$/, '')
+    const attribution = this.attribution || {}
+    return this.request<{ ok: boolean }>(
+      `/analytics/track`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ...meta,
+          projectId,
+          type,
+          path,
+          referrer,
+          visitorId: this.visitorId || undefined,
+          firstAttributionId: attribution.firstAttributionId || undefined,
+          attributionId: attribution.attributionId || attribution.id || undefined,
+        }),
+      },
+      undefined,
+      {},
+      base,
+    )
   }
 
   async getProducts(projectId: string, category?: string): Promise<NovaProduct[]> {

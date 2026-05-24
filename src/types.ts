@@ -1,5 +1,20 @@
 export type NovaPaymentMethodId = 'cryptobot' | 'heleket' | 'lolz' | (string & {})
 
+export interface NovaAttribution {
+  id?: string
+  firstAttributionId?: string | null
+  attributionId?: string | null
+  source?: string | null
+  medium?: string | null
+  campaign?: string | null
+  term?: string | null
+  content?: string | null
+  landingPath?: string | null
+  referrer?: string | null
+  clickIds?: Record<string, string> | null
+  createdAt?: string | Date
+}
+
 export interface NovaVisitor {
   /** Stable per-browser id stored in HttpOnly cookie. */
   id: string
@@ -13,6 +28,7 @@ export interface NovaVisitor {
   theme: 'auto' | 'light' | 'dark'
   defaultLocale: string
   defaultCurrency: string
+  attribution?: NovaAttribution | null
 }
 
 export interface NovaShop {
@@ -141,6 +157,22 @@ export interface NovaSDKConfig {
    * Pre-known projectId. If omitted, it is inferred from `getShop()`.
    */
   projectId?: string
+}
+
+export type NovaTrackType =
+  | 'pageview'
+  | 'add_to_cart'
+  | 'checkout_start'
+  | 'purchase'
+  | 'product_view'
+  | (string & {})
+
+export interface NovaTrackMeta {
+  projectId?: string
+  path?: string
+  referrer?: string
+  productId?: string
+  [key: string]: unknown
 }
 
 export interface NovaCustomer {
