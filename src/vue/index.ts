@@ -511,7 +511,7 @@ export function useSupportChat(orderId: string, options: { autoPoll?: boolean; i
     if (!id) throw new Error('Chat unavailable')
     sending.value = true
     try {
-      const msg = await client.sendSupportMessage(id, text)
+      const msg = await client.sendSupportMessage(id, text, chat.value?.supportToken)
       // Optimistic append; the SSE stream will deduplicate by id.
       appendMessage(msg)
       return msg
@@ -524,7 +524,7 @@ export function useSupportChat(orderId: string, options: { autoPoll?: boolean; i
     if (!chat.value) await load()
     const id = chat.value?.id
     if (!id) throw new Error('Chat unavailable')
-    return client.rateSupportChat(id, rating)
+    return client.rateSupportChat(id, rating, chat.value?.supportToken)
   }
 
   function startStream() {
@@ -534,7 +534,7 @@ export function useSupportChat(orderId: string, options: { autoPoll?: boolean; i
       onError: () => { connected.value = false },
       onMessage: (m) => appendMessage(m),
       onStatus: (status, rating) => applyStatus(status, rating ?? null),
-    })
+    }, chat.value.supportToken)
   }
 
   function startPolling() {

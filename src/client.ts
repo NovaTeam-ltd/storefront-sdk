@@ -810,6 +810,7 @@ export class NovaClient {
     if (this.devMode) {
       return { id: `dev-${safeRandomId().slice(0, 8)}`, priceRub: gb * 90, status: 'pending' }
     }
+    const checkoutToken = await this.ensureCheckoutToken(projectId)
     return this.request(
       `/${projectId}/proxy/order`,
       {
@@ -817,7 +818,7 @@ export class NovaClient {
         body: JSON.stringify({ proxyType, gbAmount: gb, country, email, paymentMethod: body?.paymentMethod }),
       },
       undefined,
-      { withKey: true },
+      { withKey: true, withCheckout: checkoutToken },
     )
   }
 
@@ -835,6 +836,7 @@ export class NovaClient {
     if (this.devMode) {
       return { id: `dev-${safeRandomId().slice(0, 8)}`, priceRub: days === 1 ? 0 : 297, status: 'active' }
     }
+    const checkoutToken = await this.ensureCheckoutToken(projectId)
     return this.request(
       `/${projectId}/vpn/order`,
       {
@@ -842,17 +844,23 @@ export class NovaClient {
         body: JSON.stringify({ durationDays: days, email, paymentMethod: body?.paymentMethod }),
       },
       undefined,
-      { withKey: true },
+      { withKey: true, withCheckout: checkoutToken },
     )
   }
 
   // ── Support chat ─────────────────────────────────────────────────────
   async getSupportChat(orderId: string): Promise<NovaSupportChat> {
     if (!UUID_RE.test(orderId)) throw new NovaError('Invalid orderId', 400)
+    if (!this.projectId) throw new NovaError('projectId is required', 400)
     if (this.devMode) {
-      return { id: 'dev-chat', orderId, status: 'open', messages: [], rating: null }
+      return { id: 'dev-chat', orderId, status: 'open', messages: [], rating: null, supportToken: 'dev-token' }
     }
-    return this.request<NovaSupportChat>(`/support-chat/${encodeURIComponent(orderId)}`)
+    return this.request<NovaSupportChat>(
+      `/${this.projectId}/support-chat/${encodeURIComponent(orderId)}`,
+      {},
+      undefined,
+      { withKey: true },
+    )
   }
 
   /**
@@ -869,12 +877,20 @@ export class NovaClient {
       onOpen?: () => void
       onError?: (err: Event | Error) => void
     } = {},
+    supportToken?: string,
   ): () => void {
     if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
     if (this.devMode || typeof window === 'undefined' || typeof (window as any).EventSource === 'undefined') {
       return () => {}
     }
-    const url = `${this.apiBase}/support-chat/${encodeURIComponent(chatId)}/stream`
+    if (!this.projectId) throw new NovaError('projectId is required', 400)
+    if (!this.projectKey) throw new NovaError('projectKey is required', 400)
+    if (!supportToken) throw new NovaError('supportToken is required', 401)
+    const params = new URLSearchParams({
+      projectKey: this.projectKey,
+      supportToken,
+    })
+    const url = `${this.apiBase}/${this.projectId}/support-chat/${encodeURIComponent(chatId)}/stream?${params.toString()}`
     const es = new (window as any).EventSource(url, {
       withCredentials: this.credentials === 'include',
     }) as EventSource
@@ -893,28 +909,44 @@ export class NovaClient {
     }
   }
 
-  async sendSupportMessage(chatId: string, text: string): Promise<NovaSupportMessage> {
+  async sendSupportMessage(chatId: string, text: string, supportToken?: string): Promise<NovaSupportMessage> {
     if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
+    if (!this.projectId) throw new NovaError('projectId is required', 400)
     if (!text || typeof text !== 'string' || text.length > 4000) {
       throw new NovaError('Invalid message', 400)
     }
     if (this.devMode) {
       return { id: safeRandomId(), sender: 'customer', text, createdAt: new Date().toISOString() }
     }
+    if (!supportToken) throw new NovaError('supportToken is required', 401)
     return this.request<NovaSupportMessage>(
-      `/support-chat/${encodeURIComponent(chatId)}/message`,
-      { method: 'POST', body: JSON.stringify({ text }) },
+      `/${this.projectId}/support-chat/${encodeURIComponent(chatId)}/message`,
+      {
+        method: 'POST',
+        headers: { 'X-Support-Chat-Token': supportToken },
+        body: JSON.stringify({ text }),
+      },
+      undefined,
+      { withKey: true },
     )
   }
 
-  async rateSupportChat(chatId: string, rating: number): Promise<{ ok: true }> {
+  async rateSupportChat(chatId: string, rating: number, supportToken?: string): Promise<{ ok: true }> {
     if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
+    if (!this.projectId) throw new NovaError('projectId is required', 400)
     const r = Number(rating)
     if (!Number.isInteger(r) || r < 1 || r > 5) throw new NovaError('Rating must be 1..5', 400)
     if (this.devMode) return { ok: true }
+    if (!supportToken) throw new NovaError('supportToken is required', 401)
     return this.request(
-      `/support-chat/${encodeURIComponent(chatId)}/rate`,
-      { method: 'POST', body: JSON.stringify({ rating: r }) },
+      `/${this.projectId}/support-chat/${encodeURIComponent(chatId)}/rate`,
+      {
+        method: 'POST',
+        headers: { 'X-Support-Chat-Token': supportToken },
+        body: JSON.stringify({ rating: r }),
+      },
+      undefined,
+      { withKey: true },
     )
   }
 }

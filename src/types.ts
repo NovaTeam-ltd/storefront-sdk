@@ -210,6 +210,7 @@ export interface NovaSupportChat {
   status: string
   messages: NovaSupportMessage[]
   rating: number | null
+  supportToken?: string
 }
 
 export interface NovaSteamTopupRequest {
