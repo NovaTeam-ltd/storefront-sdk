@@ -1,4 +1,5 @@
-export type NovaPaymentMethodId = 'cryptobot' | 'heleket' | 'lolz' | (string & {})
+/** Payment method identifier returned by the storefront API. */
+export type NovaPaymentMethodId = 'cryptobot' | 'heleket' | 'lolz' | 'platega' | (string & {})
 
 export interface NovaAttribution {
   id?: string
@@ -59,11 +60,15 @@ export interface NovaShop {
 }
 
 export interface NovaProduct {
+  /** Product UUID. Pass this value to `purchaseProduct()`. */
   id: string
   name: string
+  /** Storefront price in the shop currency. */
   price: number
   category: string
+  /** Safe storefront image URL or null. Treat it as opaque; do not parse supplier details from it. */
   image: string | null
+  /** `auto` for automatic fulfillment, `manual` for seller-handled delivery. */
   deliveryType: string
   stock: number
 }
@@ -77,8 +82,11 @@ export interface NovaPaymentMethod {
 }
 
 export interface NovaPurchaseRequest {
+  /** Product UUID from `NovaProduct.id`. */
   productId: string
+  /** Integer quantity. Server validates stock and the allowed range. */
   quantity: number
+  /** Must be one of the ids returned by `getPaymentMethods()`. */
   paymentMethod: NovaPaymentMethodId
   email?: string
   customerInfo?: Record<string, string>
@@ -236,10 +244,14 @@ export interface NovaSteamTopupResult {
 export interface NovaStarsPackage { qty: number; priceRub: number }
 
 export interface NovaStarsPricing {
+  /** Storefront price for one Telegram Star before PSP-specific payment fees. */
   pricePerStar: number
   currency: string
+  /** Minimum purchasable Star quantity. */
   min: number
+  /** Maximum purchasable Star quantity. */
   max: number
+  /** Preset packages for quick buttons; manual calculators may use any integer quantity within min/max. */
   packages: NovaStarsPackage[]
   paymentMethods: NovaPaymentMethod[]
 }
@@ -253,10 +265,15 @@ export interface NovaPremiumPricing {
 }
 
 export interface NovaSteamPricing {
-  currencies: readonly string[]
+  /** Steam wallet currencies supported by this storefront flow. */
+  currencies: readonly NovaSteamCurrency[]
+  /** Minimum receive amount per Steam wallet currency. */
   min: Record<string, number>
+  /** Maximum receive amount per Steam wallet currency. */
   max: Record<string, number>
+  /** Project Steam markup percent. */
   steamMarkup: number
+  /** Local quote rates. Use `quoteSteamTopupFromRub()` to calculate without API calls on every input. */
   quoteRates?: Partial<Record<NovaSteamCurrency, NovaSteamQuoteRate>>
   paymentMethods: NovaPaymentMethod[]
 }
@@ -264,7 +281,9 @@ export interface NovaSteamPricing {
 export type NovaSteamCurrency = 'RUB' | 'KZT' | 'UAH'
 
 export interface NovaSteamQuoteRate {
+  /** RUB cost for one receive-currency unit before markup. */
   rubPerUnit: number
+  /** Multiplier including project markup, for example 1.12. */
   markupFactor: number
   minChargeRub: number
   maxChargeRub: number
@@ -278,19 +297,25 @@ export interface NovaSteamTopupQuoteRequest {
 }
 
 export interface NovaTopupQuote {
+  /** Amount the buyer will receive in Steam wallet currency. */
   receiveAmount: number
   receiveCurrency: NovaSteamCurrency
+  /** Storefront amount to charge in RUB before PSP-specific fees. */
   chargeRub: number
+  /** Budget remainder when exact spend is impossible. */
   remainingRub: number
+  /** True when quote satisfies min/max and can be submitted. */
   valid: boolean
   minChargeRub: number
   maxChargeRub: number
 }
 
 export interface NovaSteamGame {
+  /** External catalog service id. */
   serviceId: number
   name: string
   category: string
+  /** Safe storefront image URL or null. Treat it as opaque. */
   image: string | null
   priceRub: number
   stock: number
@@ -302,24 +327,28 @@ export interface NovaSteamGamesCatalog {
 }
 
 export interface NovaStarsOrderRequest {
+  /** Telegram username without `@`; SDK also accepts values with `@` and normalizes them. */
   username: string
+  /** Integer Star quantity, usually from `quoteStarsFromRub()`. */
   quantity: number
-  paymentMethod: string
+  paymentMethod: NovaPaymentMethodId
   email?: string
 }
 
 export interface NovaPremiumOrderRequest {
   username: string
   months: 3 | 6 | 12
-  paymentMethod: string
+  paymentMethod: NovaPaymentMethodId
   email?: string
 }
 
 export interface NovaSteamTopupV2Request {
+  /** Steam login, not display nickname. */
   login: string
+  /** Receive amount in `currency`, normally from `NovaTopupQuote.receiveAmount`. */
   amount: number
-  currency?: 'RUB' | 'KZT' | 'UAH'
-  paymentMethod: string
+  currency?: NovaSteamCurrency
+  paymentMethod: NovaPaymentMethodId
   email?: string
 }
 
@@ -327,7 +356,7 @@ export interface NovaFragmentOrderResult {
   orderId: string
   externalOrderId: string
   payUrl: string
-  paymentMethod: string
+  paymentMethod: NovaPaymentMethodId
   totalRub: number
   totalPay: number
   currency: string
@@ -349,7 +378,7 @@ export interface NovaBotOrderInfo {
   status: NovaBotOrderStatus
   productName: string
   totalRub: number
-  paymentMethod: string | null
+  paymentMethod: NovaPaymentMethodId | null
   createdAt: string
   details: {
     username: string | null
@@ -381,13 +410,13 @@ export interface NovaProxyOrderRequest {
   gbAmount: number
   country?: string
   email?: string
-  paymentMethod?: string
+  paymentMethod?: NovaPaymentMethodId
 }
 
 export interface NovaVpnOrderRequest {
   durationDays: 1 | 30 | 90 | 180 | 365 | (number & {})
   email?: string
-  paymentMethod?: string
+  paymentMethod?: NovaPaymentMethodId
 }
 
 export type NovaSupportChatStreamEvent =

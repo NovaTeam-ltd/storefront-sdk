@@ -97,6 +97,30 @@ const shop = await client.getShop('shop.example.com')
 | `setPreferences({ locale, currency, theme })` | Сохраняет настройки visitor в cookies. |
 | `track(type, meta?)` | Отправляет analytics event. |
 
+## TypeScript И Подсказки IDE
+
+Все публичные DTO экспортируются из root entrypoint:
+
+```ts
+import type {
+  NovaProduct,
+  NovaPaymentMethod,
+  NovaStarsPricing,
+  NovaTopupQuote,
+  NovaSteamTopupV2Request,
+  NovaFragmentOrderResult,
+} from '@novasynx/storefront-sdk'
+```
+
+Vue и React entrypoints также реэкспортируют те же публичные типы, чтобы шаблон можно было писать без переходов в исходники:
+
+```ts
+import type { NovaProduct } from '@novasynx/storefront-sdk/vue'
+import type { NovaProduct } from '@novasynx/storefront-sdk/react'
+```
+
+Ключевые поля имеют JSDoc-комментарии, поэтому VS Code/WebStorm показывают назначение `product.image`, `paymentMethod`, Steam/Stars quote-полей и order DTO прямо в autocomplete.
+
 ## Товары И Изображения
 
 `NovaProduct.image` может быть `null` или URL картинки. Если картинка пришла от внешнего поставщика, backend отдает ее через безопасный proxy на домене магазина.

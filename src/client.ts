@@ -49,6 +49,10 @@ const CLICK_ID_KEYS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'yclid',
 const STEAM_CURRENCIES = ['RUB', 'KZT', 'UAH'] as const
 const DEV_STEAM_RUB_PER_UNIT: Record<string, number> = { RUB: 1, KZT: 0.21, UAH: 2.2 }
 
+/**
+ * Calculate the maximum integer Telegram Stars quantity for a RUB budget.
+ * Returns `valid=false` when the budget is below the minimum package.
+ */
 export function quoteStarsFromRub(
   pricing: NovaStarsPricing | null | undefined,
   amountRub: number,
@@ -95,6 +99,10 @@ function steamChargeRub(receiveAmount: number, rubPerUnit: number, markupFactor:
   return Math.ceil(Math.ceil(receiveAmount * rubPerUnit) * markupFactor)
 }
 
+/**
+ * Calculate the maximum Steam wallet amount a buyer can receive for a RUB budget.
+ * Use this for live input calculators to avoid API requests on every keystroke.
+ */
 export function quoteSteamTopupFromRub(
   pricing: NovaSteamPricing | null | undefined,
   amountRub: number,
@@ -335,6 +343,7 @@ export class NovaClient {
     return (payload ?? ({} as T)) as T
   }
 
+  /** Load shop settings for the current domain and initialize project id/key in the client. */
   async getShop(domain?: string): Promise<NovaShop> {
     if (this.devMode) return this.devShop
     const host = domain || (typeof window !== 'undefined' ? window.location.hostname : '')
@@ -394,6 +403,7 @@ export class NovaClient {
     )
   }
 
+  /** List active products for a project. Pass `category` to filter server-side. */
   async getProducts(projectId: string, category?: string): Promise<NovaProduct[]> {
     if (this.devMode) {
       const all = this.devProducts
@@ -406,6 +416,7 @@ export class NovaClient {
     })
   }
 
+  /** List product categories available in the storefront. */
   async getCategories(projectId: string): Promise<string[]> {
     if (this.devMode) return [...new Set(this.devProducts.map((p) => p.category))]
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
@@ -427,6 +438,7 @@ export class NovaClient {
     )
   }
 
+  /** List payment methods enabled for the project. Use returned ids in order requests. */
   async getPaymentMethods(projectId: string): Promise<NovaPaymentMethod[]> {
     if (this.devMode) return this.devPaymentMethods
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
@@ -520,6 +532,7 @@ export class NovaClient {
     return r.token
   }
 
+  /** Create a payment invoice for a regular product order. */
   async purchaseProduct(
     projectId: string,
     body: NovaPurchaseRequest,
@@ -579,6 +592,7 @@ export class NovaClient {
     )
   }
 
+  /** Fetch current status and delivery data for a regular product order. */
   async getOrder(
     projectId: string,
     orderId: string,
@@ -615,6 +629,7 @@ export class NovaClient {
     )
   }
 
+  /** Poll a regular product order until it reaches COMPLETED, FAILED, or CANCELLED. */
   async waitForOrder(
     projectId: string,
     orderId: string,
@@ -690,6 +705,7 @@ export class NovaClient {
 
   // ── Telegram Stars / Premium / Steam V2 (multi-PSP) ─────────────────
 
+  /** Load Telegram Stars price, min/max, quick packages, and payment methods. */
   async getStarsPricing(projectId: string): Promise<NovaStarsPricing> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     if (this.devMode) {
@@ -702,6 +718,7 @@ export class NovaClient {
     return this.request<NovaStarsPricing>(`/${projectId}/stars-pricing`, {}, undefined, { withKey: true })
   }
 
+  /** Load Telegram Premium plans and payment methods. */
   async getPremiumPricing(projectId: string): Promise<NovaPremiumPricing> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     if (this.devMode) {
@@ -718,6 +735,7 @@ export class NovaClient {
     return this.request<NovaPremiumPricing>(`/${projectId}/premium-pricing`, {}, undefined, { withKey: true })
   }
 
+  /** Load Steam top-up limits, local quote rates, markup, and payment methods. */
   async getSteamPricing(projectId: string): Promise<NovaSteamPricing> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     if (this.devMode) {
@@ -753,6 +771,7 @@ export class NovaClient {
     return this.request<NovaSteamPricing>(`/${projectId}/steam-pricing`, {}, undefined, { withKey: true })
   }
 
+  /** Request a server-side Steam top-up quote. Prefer local `quoteSteamTopupFromRub()` for live input. */
   async quoteSteamTopup(
     projectId: string,
     body: NovaSteamTopupQuoteRequest,
@@ -783,6 +802,7 @@ export class NovaClient {
     )
   }
 
+  /** Load optional Steam games catalog items. Regular storefront cards usually use `getProducts()`. */
   async getSteamGames(projectId: string, opts: { limit?: number; q?: string } = {}): Promise<NovaSteamGamesCatalog> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     const params = new URLSearchParams()
@@ -813,6 +833,7 @@ export class NovaClient {
     return u
   }
 
+  /** Create a Telegram Stars order. Use `quoteStarsFromRub()` to calculate quantity from a RUB budget. */
   async purchaseStars(projectId: string, body: NovaStarsOrderRequest): Promise<NovaFragmentOrderResult> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     const username = this.validateUsername(body?.username || '')
@@ -837,6 +858,7 @@ export class NovaClient {
     )
   }
 
+  /** Create a Telegram Premium order for 3, 6, or 12 months. */
   async purchasePremium(projectId: string, body: NovaPremiumOrderRequest): Promise<NovaFragmentOrderResult> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     const username = this.validateUsername(body?.username || '')
@@ -861,6 +883,7 @@ export class NovaClient {
     )
   }
 
+  /** Create a Steam top-up V2 order. `body.amount` is the receive amount in `body.currency`. */
   async purchaseSteamTopupV2(projectId: string, body: NovaSteamTopupV2Request): Promise<NovaFragmentOrderResult> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     const login = String(body?.login || '').trim()
@@ -891,6 +914,7 @@ export class NovaClient {
     )
   }
 
+  /** Fetch status for Stars, Premium, Steam V2, or bot-backed product orders. */
   async getBotOrder(projectId: string, orderId: string, signal?: AbortSignal): Promise<NovaBotOrderInfo> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     if (!UUID_RE.test(orderId)) throw new NovaError('Invalid orderId', 400)
@@ -908,6 +932,7 @@ export class NovaClient {
     )
   }
 
+  /** Poll a bot-backed order until completed, failed, or cancelled. */
   async waitForBotOrder(
     projectId: string, orderId: string,
     opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal; onUpdate?: (s: NovaBotOrderInfo) => void } = {},
@@ -927,6 +952,7 @@ export class NovaClient {
   }
 
   // ── Proxy / VPN ──────────────────────────────────────────────────────
+  /** Load proxy and VPN pricing options for the project. */
   async getProxyPricing(projectId: string): Promise<NovaProxyPricing> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     if (this.devMode) {
@@ -942,6 +968,7 @@ export class NovaClient {
     })
   }
 
+  /** Create a proxy order using options from `getProxyPricing()`. */
   async createProxyOrder(
     projectId: string,
     body: NovaProxyOrderRequest,
@@ -972,6 +999,7 @@ export class NovaClient {
     )
   }
 
+  /** Create a VPN order using a supported duration from `getProxyPricing()`. */
   async createVpnOrder(
     projectId: string,
     body: NovaVpnOrderRequest,
@@ -999,6 +1027,7 @@ export class NovaClient {
   }
 
   // ── Support chat ─────────────────────────────────────────────────────
+  /** Open or load support chat for an order. */
   async getSupportChat(orderId: string): Promise<NovaSupportChat> {
     if (!UUID_RE.test(orderId)) throw new NovaError('Invalid orderId', 400)
     if (!this.projectId) throw new NovaError('projectId is required', 400)
@@ -1059,6 +1088,7 @@ export class NovaClient {
     }
   }
 
+  /** Send a customer message to support chat. Requires the chat support token. */
   async sendSupportMessage(chatId: string, text: string, supportToken?: string): Promise<NovaSupportMessage> {
     if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
     if (!this.projectId) throw new NovaError('projectId is required', 400)
@@ -1081,6 +1111,7 @@ export class NovaClient {
     )
   }
 
+  /** Rate a completed support chat from 1 to 5. Requires the chat support token. */
   async rateSupportChat(chatId: string, rating: number, supportToken?: string): Promise<{ ok: true }> {
     if (!UUID_RE.test(chatId)) throw new NovaError('Invalid chatId', 400)
     if (!this.projectId) throw new NovaError('projectId is required', 400)
