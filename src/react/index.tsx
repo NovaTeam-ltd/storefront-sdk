@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react'
 import { NovaClient, applyTheme, quoteStarsFromRub, quoteSteamTopupFromRub } from '../index'
@@ -12,6 +13,8 @@ import type {
   NovaVisitor,
   NovaAttribution,
   NovaProduct,
+  NovaProductsPage,
+  NovaProductsPageRequest,
   NovaSDKConfig,
   NovaPaymentMethod,
   NovaPaymentMethodId,
@@ -36,6 +39,9 @@ import type {
   NovaTopupQuote,
   NovaSteamGame,
   NovaSteamGamesCatalog,
+  NovaCatalogServicesPage,
+  NovaCatalogServicesPageRequest,
+  NovaCatalogServiceItem,
   NovaStarsPricing,
   NovaPremiumPricing,
   NovaStarsOrderRequest,
@@ -130,6 +136,44 @@ export function useProducts(category?: string) {
   }, [shop?.projectId])
 
   return { products, loading, error, reload: load }
+}
+
+export function useProductsPage(initial: NovaProductsPageRequest = {}) {
+  const { client, shop } = useNovaContext()
+  const [products, setProducts] = useState<NovaProduct[]>([])
+  const [page, setPage] = useState<NovaProductsPage | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const lastOpts = useRef<NovaProductsPageRequest>(initial)
+
+  const load = useCallback(async (opts: NovaProductsPageRequest = lastOpts.current, append = false) => {
+    if (!shop?.projectId) return null
+    lastOpts.current = opts
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await client.getProductsPage(shop.projectId, opts)
+      setPage(data)
+      setProducts((current) => append ? [...current, ...data.items] : data.items)
+      return data
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load products')
+      throw e
+    } finally {
+      setLoading(false)
+    }
+  }, [client, shop?.projectId, initial])
+
+  const loadMore = useCallback(async () => {
+    if (!page?.hasMore || loading) return page
+    return load({ ...lastOpts.current, limit: page.limit, offset: page.offset + page.limit }, true)
+  }, [page, loading, load])
+
+  useEffect(() => {
+    if (shop?.projectId) load(initial)
+  }, [shop?.projectId])
+
+  return { products, page, hasMore: !!page?.hasMore, loading, error, reload: load, loadMore }
 }
 
 export function useCategories() {
@@ -315,11 +359,51 @@ export function useOrder(orderId: string, options: { autoPoll?: boolean; interva
   return { order, loading, error, refresh }
 }
 
+export function useCatalogServicesPage(initial: NovaCatalogServicesPageRequest = {}) {
+  const { client, shop } = useNovaContext()
+  const [items, setItems] = useState<NovaCatalogServiceItem[]>([])
+  const [page, setPage] = useState<NovaCatalogServicesPage | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const lastOpts = useRef<NovaCatalogServicesPageRequest>(initial)
+
+  const load = useCallback(async (opts: NovaCatalogServicesPageRequest = lastOpts.current, append = false) => {
+    if (!shop?.projectId) return null
+    lastOpts.current = opts
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await client.getCatalogServicesPage(shop.projectId, opts)
+      setPage(data)
+      setItems((current) => append ? [...current, ...data.items] : data.items)
+      return data
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load catalog services')
+      throw e
+    } finally {
+      setLoading(false)
+    }
+  }, [client, shop?.projectId, initial])
+
+  const loadMore = useCallback(async () => {
+    if (!page?.hasMore || loading) return page
+    return load({ ...lastOpts.current, limit: page.limit, offset: page.offset + page.limit }, true)
+  }, [page, loading, load])
+
+  useEffect(() => {
+    if (shop?.projectId) load(initial)
+  }, [shop?.projectId])
+
+  return { items, page, hasMore: !!page?.hasMore, loading, error, reload: load, loadMore }
+}
+
 export type {
   NovaShop,
   NovaVisitor,
   NovaAttribution,
   NovaProduct,
+  NovaProductsPage,
+  NovaProductsPageRequest,
   NovaSDKConfig,
   NovaPaymentMethod,
   NovaPaymentMethodId,
@@ -344,6 +428,9 @@ export type {
   NovaTopupQuote,
   NovaSteamGame,
   NovaSteamGamesCatalog,
+  NovaCatalogServicesPage,
+  NovaCatalogServicesPageRequest,
+  NovaCatalogServiceItem,
   NovaStarsPricing,
   NovaPremiumPricing,
   NovaStarsOrderRequest,

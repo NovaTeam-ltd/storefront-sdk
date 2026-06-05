@@ -2,6 +2,8 @@ import type {
   NovaShop,
   NovaAttribution,
   NovaProduct,
+  NovaProductsPage,
+  NovaProductsPageRequest,
   NovaSDKConfig,
   NovaTrackMeta,
   NovaTrackType,
@@ -28,6 +30,8 @@ import type {
   NovaSteamTopupQuoteRequest,
   NovaTopupQuote,
   NovaSteamGamesCatalog,
+  NovaCatalogServicesPage,
+  NovaCatalogServicesPageRequest,
   NovaStarsOrderRequest,
   NovaPremiumOrderRequest,
   NovaSteamTopupV2Request,
@@ -199,6 +203,35 @@ function appendBrowserAttribution(params: URLSearchParams) {
   for (const key of CLICK_ID_KEYS) {
     const value = current.get(key)
     if (value) params.set(key, value)
+  }
+}
+
+function buildQuery(params: object): string {
+  const qs = new URLSearchParams()
+  for (const [key, value] of Object.entries(params as Record<string, unknown>)) {
+    if (value === undefined || value === null || value === '') continue
+    qs.set(key, String(value))
+  }
+  const text = qs.toString()
+  return text ? `?${text}` : ''
+}
+
+function paginate<T>(items: T[], opts: { limit?: number; offset?: number; page?: number }) {
+  const limit = Math.max(1, Math.min(200, Math.floor(Number(opts.limit) || 50)))
+  const explicitOffset = Number(opts.offset)
+  const pageNumber = Number(opts.page)
+  const offset = Number.isFinite(explicitOffset) && explicitOffset >= 0
+    ? Math.floor(explicitOffset)
+    : Number.isFinite(pageNumber) && pageNumber > 1
+      ? (Math.floor(pageNumber) - 1) * limit
+      : 0
+  return {
+    items: items.slice(offset, offset + limit),
+    total: items.length,
+    limit,
+    offset,
+    page: Math.floor(offset / limit) + 1,
+    hasMore: offset + limit < items.length,
   }
 }
 
@@ -414,6 +447,26 @@ export class NovaClient {
     return this.request<NovaProduct[]>(`/${projectId}/products${params}`, {}, undefined, {
       withKey: true,
     })
+  }
+
+  /** List active products as a page. Use this for lazy-loaded storefront grids. */
+  async getProductsPage(projectId: string, opts: NovaProductsPageRequest = {}): Promise<NovaProductsPage> {
+    if (this.devMode) {
+      const q = String(opts.q || '').trim().toLowerCase()
+      const filtered = this.devProducts.filter((p) => {
+        if (opts.category && p.category !== opts.category) return false
+        if (!q) return true
+        return `${p.name} ${p.category}`.toLowerCase().includes(q)
+      })
+      return paginate(filtered, opts)
+    }
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    return this.request<NovaProductsPage>(
+      `/${projectId}/products${buildQuery(opts)}`,
+      {},
+      undefined,
+      { withKey: true },
+    )
   }
 
   /** List product categories available in the storefront. */
@@ -802,13 +855,21 @@ export class NovaClient {
     )
   }
 
-  /** Load optional Steam games catalog items. Regular storefront cards usually use `getProducts()`. */
-  async getSteamGames(projectId: string, opts: { limit?: number; q?: string } = {}): Promise<NovaSteamGamesCatalog> {
+  /** Load optional Steam games catalog items. Regular storefront cards usually use `getProductsPage()`. */
+  async getSteamGames(
+    projectId: string,
+    opts: { limit?: number; offset?: number; page?: number; q?: string } = {},
+  ): Promise<NovaSteamGamesCatalog> {
+    if (this.devMode) {
+      const q = String(opts.q || '').trim().toLowerCase()
+      const items = [
+        { serviceId: 9001, name: 'Counter-Strike 2 (Prime)', category: 'Valve', image: null, priceRub: 1490, stock: 99 },
+        { serviceId: 9002, name: 'Dota 2 Battle Pass', category: 'Valve', image: null, priceRub: 990, stock: 50 },
+        { serviceId: 9003, name: 'Cyberpunk 2077', category: 'CD Projekt', image: null, priceRub: 2790, stock: 12 },
+      ].filter((item) => !q || `${item.name} ${item.category}`.toLowerCase().includes(q))
+      return paginate(items, opts)
+    }
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
-    const params = new URLSearchParams()
-    if (opts.limit) params.set('limit', String(opts.limit))
-    if (opts.q) params.set('q', String(opts.q))
-    const qs = params.toString()
     if (this.devMode) {
       return {
         items: [
@@ -820,7 +881,23 @@ export class NovaClient {
       }
     }
     return this.request<NovaSteamGamesCatalog>(
-      `/${projectId}/steam-games${qs ? `?${qs}` : ''}`,
+      `/${projectId}/steam-games${buildQuery(opts)}`,
+      {},
+      undefined,
+      { withKey: true },
+    )
+  }
+
+  /** Load external catalog services as a page. Image URLs are storefront proxy URLs. */
+  async getCatalogServicesPage(
+    projectId: string,
+    opts: NovaCatalogServicesPageRequest = {},
+  ): Promise<NovaCatalogServicesPage> {
+    if (this.devMode) return paginate([], opts)
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const pageOpts = { limit: 50, ...opts }
+    return this.request<NovaCatalogServicesPage>(
+      `/${projectId}/catalog/services${buildQuery(pageOpts)}`,
       {},
       undefined,
       { withKey: true },

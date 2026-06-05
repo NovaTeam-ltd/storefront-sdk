@@ -5,6 +5,8 @@ import type {
   NovaVisitor,
   NovaAttribution,
   NovaProduct,
+  NovaProductsPage,
+  NovaProductsPageRequest,
   NovaSDKConfig,
   NovaPaymentMethod,
   NovaPaymentMethodId,
@@ -34,6 +36,9 @@ import type {
   NovaSteamTopupQuoteRequest,
   NovaTopupQuote,
   NovaSteamGamesCatalog,
+  NovaCatalogServicesPage,
+  NovaCatalogServicesPageRequest,
+  NovaCatalogServiceItem,
   NovaStarsOrderRequest,
   NovaPremiumOrderRequest,
   NovaSteamTopupV2Request,
@@ -127,6 +132,59 @@ export function useProducts(category?: string) {
     loading: readonlyRef(loading),
     error: readonlyRef(error),
     reload: load,
+  }
+}
+
+export function useProductsPage(initial: NovaProductsPageRequest = {}) {
+  const { client, shop } = useNovaContext()
+  const items = ref<NovaProduct[]>([])
+  const page = shallowRef<NovaProductsPage | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  let lastOpts: NovaProductsPageRequest = initial
+
+  async function load(opts: NovaProductsPageRequest = lastOpts, append = false) {
+    const projectId = shop.value?.projectId
+    if (!projectId) return null
+
+    lastOpts = opts
+    loading.value = true
+    error.value = null
+    try {
+      const data = await client.getProductsPage(projectId, opts)
+      page.value = data
+      items.value = append ? [...items.value, ...data.items] : data.items
+      return data
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to load products'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function loadMore() {
+    const current = page.value
+    if (!current?.hasMore || loading.value) return current
+    return load({
+      ...lastOpts,
+      limit: current.limit,
+      offset: current.offset + current.limit,
+    }, true)
+  }
+
+  watch(shop, (s) => {
+    if (s) load(initial)
+  }, { immediate: true })
+
+  return {
+    products: readonlyRef(items),
+    page: readonlyRef(page),
+    hasMore: computed(() => !!page.value?.hasMore),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
+    reload: load,
+    loadMore,
   }
 }
 
@@ -349,6 +407,8 @@ export type {
   NovaVisitor,
   NovaAttribution,
   NovaProduct,
+  NovaProductsPage,
+  NovaProductsPageRequest,
   NovaSDKConfig,
   NovaPaymentMethod,
   NovaPaymentMethodId,
@@ -378,6 +438,9 @@ export type {
   NovaSteamTopupQuoteRequest,
   NovaTopupQuote,
   NovaSteamGamesCatalog,
+  NovaCatalogServicesPage,
+  NovaCatalogServicesPageRequest,
+  NovaCatalogServiceItem,
   NovaStarsOrderRequest,
   NovaPremiumOrderRequest,
   NovaSteamTopupV2Request,
@@ -693,7 +756,7 @@ export function useSteamTopupQuote() {
   return { quote: readonlyRef(quote), loading: readonlyRef(loading), error: readonlyRef(error), refresh }
 }
 
-export function useSteamGames(opts: { limit?: number; q?: string } = {}) {
+export function useSteamGames(opts: { limit?: number; offset?: number; page?: number; q?: string } = {}) {
   const { client, shop } = useNovaContext()
   const data = shallowRef<NovaSteamGamesCatalog | null>(null)
   const loading = ref(false)
@@ -715,6 +778,56 @@ export function useSteamGames(opts: { limit?: number; q?: string } = {}) {
   }
   watch(shop, (s) => { if (s) refresh() }, { immediate: true })
   return { data: readonlyRef(data), loading: readonlyRef(loading), error: readonlyRef(error), refresh }
+}
+
+export function useCatalogServicesPage(initial: NovaCatalogServicesPageRequest = {}) {
+  const { client, shop } = useNovaContext()
+  const items = ref<NovaCatalogServiceItem[]>([])
+  const page = shallowRef<NovaCatalogServicesPage | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  let lastOpts: NovaCatalogServicesPageRequest = initial
+
+  async function load(opts: NovaCatalogServicesPageRequest = lastOpts, append = false) {
+    const projectId = shop.value?.projectId
+    if (!projectId) return null
+    lastOpts = opts
+    loading.value = true
+    error.value = null
+    try {
+      const data = await client.getCatalogServicesPage(projectId, opts)
+      page.value = data
+      items.value = append ? [...items.value, ...data.items] : data.items
+      return data
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to load catalog services'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function loadMore() {
+    const current = page.value
+    if (!current?.hasMore || loading.value) return current
+    return load({
+      ...lastOpts,
+      limit: current.limit,
+      offset: current.offset + current.limit,
+    }, true)
+  }
+
+  watch(shop, (s) => { if (s) load(initial) }, { immediate: true })
+
+  return {
+    items: readonlyRef(items),
+    page: readonlyRef(page),
+    hasMore: computed(() => !!page.value?.hasMore),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
+    reload: load,
+    loadMore,
+  }
 }
 
 function makeOrderComposable<Body>(call: (client: NovaClient, projectId: string, body: Body) => Promise<NovaFragmentOrderResult>) {

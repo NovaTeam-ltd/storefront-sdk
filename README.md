@@ -130,7 +130,31 @@ import type { NovaProduct } from '@novasynx/storefront-sdk/react'
 
 Оба starter-а используют публичные SDK-типы напрямую в коде каталога: `NovaProduct`, `NovaPurchaseRequest`, `NovaPaymentMethodId`. В `src/sdk-examples.ts` дополнительно лежат typed helpers для новых сценариев `quoteStarsFromRub()`, `quoteSteamTopupFromRub()`, `NovaStarsOrderRequest` и `NovaSteamTopupV2Request`.
 
-Внутри репозитория зависимость SDK прописана как `file:../..`, чтобы starter build проверял текущие локальные типы. Если вы копируете starter в отдельный проект, замените зависимость на опубликованный пакет: `"@novasynx/storefront-sdk": "^1.1.1"`.
+Внутри репозитория зависимость SDK прописана как `file:../..`, чтобы starter build проверял текущие локальные типы. Если вы копируете starter в отдельный проект, замените зависимость на опубликованный пакет: `"@novasynx/storefront-sdk": "^1.1.2"`.
+
+## Lazy-loaded catalogs
+
+Use paginated methods for storefront grids with many cards or image-heavy catalogs:
+
+```ts
+const products = await client.getProductsPage(shop.projectId, {
+  limit: 24,
+  offset: 0,
+  category: 'Steam Wallet Code | US',
+  q: 'wallet',
+})
+
+if (products.hasMore) {
+  const next = await client.getProductsPage(shop.projectId, {
+    limit: products.limit,
+    offset: products.offset + products.limit,
+  })
+}
+```
+
+`getProductsPage()` returns `NovaProductsPage`.
+`getCatalogServicesPage()` returns `NovaCatalogServicesPage` and exposes only storefront proxy image URLs.
+Both page types have `{ items, total, limit, offset, page, hasMore }`.
 
 Build starter-а запускает type-check перед Vite-сборкой, поэтому несовпадение с `.d.ts` SDK будет видно сразу:
 

@@ -73,6 +73,30 @@ export interface NovaProduct {
   stock: number
 }
 
+export interface NovaPage<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+  page: number
+  hasMore: boolean
+}
+
+export interface NovaProductsPageRequest {
+  /** Server-side category filter. */
+  category?: string
+  /** Server-side search across product name and category. */
+  q?: string
+  /** Page size. Server clamps unsafe values. */
+  limit?: number
+  /** Zero-based offset. Takes precedence over `page`. */
+  offset?: number
+  /** One-based page number. */
+  page?: number
+}
+
+export type NovaProductsPage = NovaPage<NovaProduct>
+
 export interface NovaPaymentMethod {
   id: NovaPaymentMethodId
   name: string
@@ -324,7 +348,39 @@ export interface NovaSteamGame {
 export interface NovaSteamGamesCatalog {
   items: NovaSteamGame[]
   total: number
+  limit?: number
+  offset?: number
+  page?: number
+  hasMore?: boolean
 }
+
+export interface NovaCatalogServicesPageRequest {
+  q?: string
+  /** Category id or category name fragment. */
+  category?: string
+  /** Global group name, for example `Steam Games`. */
+  group?: string
+  limit?: number
+  offset?: number
+  page?: number
+}
+
+export interface NovaCatalogServiceItem {
+  serviceId: number
+  serviceName: string
+  price: number
+  currency: string
+  inStock: number
+  /** Safe storefront proxy image URL or null. Treat it as opaque. */
+  imageUrl: string | null
+  categoryId: number
+  categoryName: string
+  /** Safe storefront proxy category image URL or null. */
+  categoryImageUrl: string | null
+  groupName: string | null
+}
+
+export type NovaCatalogServicesPage = NovaPage<NovaCatalogServiceItem>
 
 export interface NovaStarsOrderRequest {
   /** Telegram username without `@`; SDK also accepts values with `@` and normalizes them. */
