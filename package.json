@@ -1,6 +1,6 @@
 {
   "name": "@novasynx/storefront-sdk",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "NovaHub Storefront SDK for building custom shop templates",
   "type": "module",
   "main": "./dist/index.js",

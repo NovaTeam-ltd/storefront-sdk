@@ -130,7 +130,7 @@ import type { NovaProduct } from '@novasynx/storefront-sdk/react'
 
 Оба starter-а используют публичные SDK-типы напрямую в коде каталога: `NovaProduct`, `NovaPurchaseRequest`, `NovaPaymentMethodId`. В `src/sdk-examples.ts` дополнительно лежат typed helpers для новых сценариев `quoteStarsFromRub()`, `quoteSteamTopupFromRub()`, `NovaStarsOrderRequest` и `NovaSteamTopupV2Request`.
 
-Внутри репозитория зависимость SDK прописана как `file:../..`, чтобы starter build проверял текущие локальные типы. Если вы копируете starter в отдельный проект, замените зависимость на опубликованный пакет: `"@novasynx/storefront-sdk": "^1.1.0"`.
+Внутри репозитория зависимость SDK прописана как `file:../..`, чтобы starter build проверял текущие локальные типы. Если вы копируете starter в отдельный проект, замените зависимость на опубликованный пакет: `"@novasynx/storefront-sdk": "^1.1.1"`.
 
 Build starter-а запускает type-check перед Vite-сборкой, поэтому несовпадение с `.d.ts` SDK будет видно сразу:
 
@@ -541,9 +541,25 @@ function StarsCalculator() {
 ```css
 :root {
   --nova-primary: #6366f1;
+  --nova-primary-light: #8b8df5;
+  --nova-primary-dark: #4b4eb7;
   --nova-primary-rgb: 99, 102, 241;
+  --nova-accent: #7b7df3;
+  --nova-accent-rgb: 123, 125, 243;
+
+  /* aliases for template CSS */
+  --primary: #6366f1;
+  --primary-light: #8b8df5;
+  --primary-dark: #4b4eb7;
+  --primary-rgb: 99, 102, 241;
+  --accent: #7b7df3;
+  --accent-light: #9c9df6;
+  --accent-dark: #6264c2;
+  --accent-rgb: 123, 125, 243;
 }
 ```
+
+Для прозрачных цветов SDK также задает `--primary-04`, `--primary-08`, `--primary-12`, `--primary-25`, `--primary-40` и такие же `--accent-*`/`--nova-*` варианты. В кастомных шаблонах можно использовать и прямой формат `rgba(var(--primary-rgb), 0.12)`.
 
 SDK также обновляет favicon, manifest name и social image, если они есть в настройках магазина.
 

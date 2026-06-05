@@ -2,12 +2,30 @@ import type { NovaShop } from './types'
 
 export function applyTheme(shop: NovaShop) {
   const root = document.documentElement
-  root.style.setProperty('--nova-primary', shop.primaryColor)
+  const primary = normalizeHexColor(shop.primaryColor) || '#6366F1'
+  const primaryLight = mixHex(primary, '#FFFFFF', 0.28)
+  const primaryDark = mixHex(primary, '#000000', 0.24)
+  const accent = mixHex(primary, '#FFFFFF', 0.16)
+  const accentLight = mixHex(accent, '#FFFFFF', 0.22)
+  const accentDark = mixHex(accent, '#000000', 0.2)
 
-  const rgb = hexToRgb(shop.primaryColor)
-  if (rgb) {
-    root.style.setProperty('--nova-primary-rgb', `${rgb.r}, ${rgb.g}, ${rgb.b}`)
-  }
+  setThemeVar(root, '--nova-primary', primary)
+  setThemeVar(root, '--nova-primary-light', primaryLight)
+  setThemeVar(root, '--nova-primary-dark', primaryDark)
+  setThemeVar(root, '--nova-accent', accent)
+  setThemeVar(root, '--nova-accent-light', accentLight)
+  setThemeVar(root, '--nova-accent-dark', accentDark)
+
+  // Backward-compatible aliases used by older templates.
+  setThemeVar(root, '--primary', primary)
+  setThemeVar(root, '--primary-light', primaryLight)
+  setThemeVar(root, '--primary-dark', primaryDark)
+  setThemeVar(root, '--accent', accent)
+  setThemeVar(root, '--accent-light', accentLight)
+  setThemeVar(root, '--accent-dark', accentDark)
+
+  setRgbVars(root, 'primary', primary)
+  setRgbVars(root, 'accent', accent)
 
   const title = shop.seoTitle || shop.name
   if (title) document.title = title
@@ -27,20 +45,51 @@ export function applyTheme(shop: NovaShop) {
   if (shop.name) upsertMeta({ property: 'og:site_name' }, shop.name)
   upsertMeta({ property: 'og:type' }, 'website')
   upsertMeta({ name: 'twitter:card' }, 'summary')
+  upsertMeta({ name: 'theme-color' }, primary)
   if (typeof window !== 'undefined' && window.location?.href) {
     upsertMeta({ property: 'og:url' }, window.location.href)
   }
 
-  // Favicon продавца. Если не задан — используем нейтральную SVG-иконку
-  // (буква проекта на фоне primaryColor), чтобы не показывать NS-логотип.
   if (shop.favicon) {
     upsertFavicon(shop.favicon)
   } else if (shop.name) {
-    upsertFavicon(buildLetterFavicon(shop.name, shop.primaryColor || '#6366F1'))
+    upsertFavicon(buildLetterFavicon(shop.name, primary))
   }
   if (shop.ogImage) {
     upsertMeta({ property: 'og:image' }, shop.ogImage)
     upsertMeta({ name: 'twitter:image' }, shop.ogImage)
+  }
+}
+
+function setThemeVar(root: HTMLElement, name: string, value: string) {
+  root.style.setProperty(name, value)
+}
+
+function setRgbVars(root: HTMLElement, name: 'primary' | 'accent', hex: string) {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return
+
+  const value = `${rgb.r}, ${rgb.g}, ${rgb.b}`
+  setThemeVar(root, `--nova-${name}-rgb`, value)
+  setThemeVar(root, `--${name}-rgb`, value)
+
+  for (const [suffix, alpha] of [
+    ['04', '0.04'],
+    ['06', '0.06'],
+    ['08', '0.08'],
+    ['10', '0.10'],
+    ['12', '0.12'],
+    ['14', '0.14'],
+    ['18', '0.18'],
+    ['20', '0.20'],
+    ['25', '0.25'],
+    ['30', '0.30'],
+    ['35', '0.35'],
+    ['40', '0.40'],
+    ['50', '0.50'],
+  ] as const) {
+    setThemeVar(root, `--nova-${name}-${suffix}`, `rgba(${value}, ${alpha})`)
+    setThemeVar(root, `--${name}-${suffix}`, `rgba(${value}, ${alpha})`)
   }
 }
 
@@ -58,9 +107,6 @@ function upsertMeta(attrs: Record<string, string>, content: string) {
 
 function upsertFavicon(href: string) {
   if (typeof document === 'undefined') return
-  // Удаляем все существующие <link rel*="icon"> (включая SVG-дефолт шаблона
-  // и любые apple-touch-icon с NS-логотипом), чтобы браузер не подхватил
-  // тот, что грузится первым.
   const oldLinks = document.head.querySelectorAll<HTMLLinkElement>('link[rel*="icon"]')
   oldLinks.forEach((el) => el.parentNode?.removeChild(el))
 
@@ -79,8 +125,7 @@ function upsertFavicon(href: string) {
 
 function buildLetterFavicon(name: string, color: string): string {
   const letter = (name.trim().charAt(0) || '?').toUpperCase()
-  const safeColor = color.startsWith('#') ? color : '#6366F1'
-  // SVG из инициала проекта на фоне primaryColor — чистый дефолт без брендинга платформы.
+  const safeColor = normalizeHexColor(color) || '#6366F1'
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
     `<rect width="64" height="64" rx="14" fill="${safeColor}"/>` +
@@ -97,6 +142,30 @@ function escapeXml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+function normalizeHexColor(color: string | null | undefined): string | null {
+  const value = String(color || '').trim()
+  const short = /^#?([a-f\d])([a-f\d])([a-f\d])$/i.exec(value)
+  if (short) {
+    return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toUpperCase()
+  }
+
+  const full = /^#?([a-f\d]{6})$/i.exec(value)
+  if (!full) return null
+  return `#${full[1]}`.toUpperCase()
+}
+
+function mixHex(from: string, to: string, weight: number): string {
+  const a = hexToRgb(from)
+  const b = hexToRgb(to)
+  if (!a || !b) return from
+
+  const w = Math.min(1, Math.max(0, weight))
+  const r = Math.round(a.r + (b.r - a.r) * w)
+  const g = Math.round(a.g + (b.g - a.g) * w)
+  const bl = Math.round(a.b + (b.b - a.b) * w)
+  return '#' + [r, g, bl].map((n) => n.toString(16).padStart(2, '0')).join('').toUpperCase()
 }
 
 function hexToRgb(hex: string) {
