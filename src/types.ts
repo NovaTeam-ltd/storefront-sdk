@@ -291,6 +291,7 @@ export interface NovaSteamGame {
   serviceId: number
   name: string
   category: string
+  image: string | null
   priceRub: number
   stock: number
 }

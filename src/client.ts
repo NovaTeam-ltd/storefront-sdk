@@ -792,9 +792,9 @@ export class NovaClient {
     if (this.devMode) {
       return {
         items: [
-          { serviceId: 9001, name: 'Counter-Strike 2 (Prime)', category: 'Valve', priceRub: 1490, stock: 99 },
-          { serviceId: 9002, name: 'Dota 2 — Battle Pass', category: 'Valve', priceRub: 990, stock: 50 },
-          { serviceId: 9003, name: 'Cyberpunk 2077', category: 'CD Projekt', priceRub: 2790, stock: 12 },
+          { serviceId: 9001, name: 'Counter-Strike 2 (Prime)', category: 'Valve', image: null, priceRub: 1490, stock: 99 },
+          { serviceId: 9002, name: 'Dota 2 — Battle Pass', category: 'Valve', image: null, priceRub: 990, stock: 50 },
+          { serviceId: 9003, name: 'Cyberpunk 2077', category: 'CD Projekt', image: null, priceRub: 2790, stock: 12 },
         ],
         total: 3,
       }
