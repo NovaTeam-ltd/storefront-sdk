@@ -1,5 +1,5 @@
 import { ref, shallowRef, readonly, watch, type App, type InjectionKey, inject, computed } from 'vue'
-import { NovaClient, applyTheme } from '../index'
+import { NovaClient, applyTheme, quoteStarsFromRub } from '../index'
 import type {
   NovaShop,
   NovaProduct,
@@ -22,6 +22,8 @@ import type {
   NovaStarsPricing,
   NovaPremiumPricing,
   NovaSteamPricing,
+  NovaSteamTopupQuoteRequest,
+  NovaTopupQuote,
   NovaSteamGamesCatalog,
   NovaStarsOrderRequest,
   NovaPremiumOrderRequest,
@@ -344,10 +346,16 @@ export type {
   NovaSupportChat,
   NovaSteamTopupRequest,
   NovaSteamTopupResult,
+  NovaStarsPricing,
+  NovaPremiumPricing,
   NovaProxyPricing,
   NovaProxyOrderRequest,
   NovaVpnOrderRequest,
+  NovaSteamTopupQuoteRequest,
+  NovaTopupQuote,
 }
+
+export { quoteStarsFromRub }
 
 // ── Customer auth (email OTP) ───────────────────────────────────────────
 export function useCustomer() {
@@ -628,6 +636,32 @@ function makePricingComposable<T>(fetcher: (client: NovaClient, projectId: strin
 export const useStarsPricing = makePricingComposable<NovaStarsPricing>((c, p) => c.getStarsPricing(p))
 export const usePremiumPricing = makePricingComposable<NovaPremiumPricing>((c, p) => c.getPremiumPricing(p))
 export const useSteamPricing = makePricingComposable<NovaSteamPricing>((c, p) => c.getSteamPricing(p))
+
+export function useSteamTopupQuote() {
+  const { client, shop } = useNovaContext()
+  const quote = shallowRef<NovaTopupQuote | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+
+  async function refresh(body: NovaSteamTopupQuoteRequest): Promise<NovaTopupQuote | null> {
+    const projectId = shop.value?.projectId
+    if (!projectId) return null
+    loading.value = true
+    error.value = null
+    try {
+      const r = await client.quoteSteamTopup(projectId, body)
+      quote.value = r
+      return r
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to calculate top-up'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  return { quote: readonly(quote) as any, loading: readonly(loading), error: readonly(error), refresh }
+}
 
 export function useSteamGames(opts: { limit?: number; q?: string } = {}) {
   const { client, shop } = useNovaContext()

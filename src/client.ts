@@ -24,6 +24,8 @@ import type {
   NovaStarsPricing,
   NovaPremiumPricing,
   NovaSteamPricing,
+  NovaSteamTopupQuoteRequest,
+  NovaTopupQuote,
   NovaSteamGamesCatalog,
   NovaStarsOrderRequest,
   NovaPremiumOrderRequest,
@@ -43,6 +45,49 @@ const MAX_QUANTITY = 99
 const CUSTOMER_TOKEN_KEY = 'novahub:customer-token'
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'] as const
 const CLICK_ID_KEYS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'yclid', 'msclkid'] as const
+const STEAM_CURRENCIES = ['RUB', 'KZT', 'UAH'] as const
+
+export function quoteStarsFromRub(
+  pricing: NovaStarsPricing | null | undefined,
+  amountRub: number,
+): {
+  quantity: number
+  chargeRub: number
+  remainingRub: number
+  valid: boolean
+  minChargeRub: number
+  maxChargeRub: number
+  pricePerStar: number
+} {
+  const pricePerStar = Number(pricing?.pricePerStar || 1.5)
+  const min = Number(pricing?.min || 50)
+  const max = Number(pricing?.max || 1000000)
+  const budget = Math.floor(Number(amountRub || 0))
+  const minChargeRub = pricePerStar > 0 ? Math.ceil(min * pricePerStar) : 0
+  const maxChargeRub = pricePerStar > 0 ? Math.ceil(max * pricePerStar) : 0
+  if (!pricePerStar || !Number.isFinite(budget) || budget < minChargeRub) {
+    return {
+      quantity: 0,
+      chargeRub: 0,
+      remainingRub: Math.max(0, budget || 0),
+      valid: false,
+      minChargeRub,
+      maxChargeRub,
+      pricePerStar,
+    }
+  }
+  const quantity = Math.min(max, Math.floor(budget / pricePerStar))
+  const chargeRub = Math.ceil(quantity * pricePerStar)
+  return {
+    quantity,
+    chargeRub,
+    remainingRub: Math.max(0, budget - chargeRub),
+    valid: quantity >= min && chargeRub <= budget,
+    minChargeRub,
+    maxChargeRub,
+    pricePerStar,
+  }
+}
 
 function safeRandomId(): string {
   if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
@@ -631,6 +676,55 @@ export class NovaClient {
       }
     }
     return this.request<NovaSteamPricing>(`/${projectId}/steam-pricing`, {}, undefined, { withKey: true })
+  }
+
+  async quoteSteamTopup(
+    projectId: string,
+    body: NovaSteamTopupQuoteRequest,
+  ): Promise<NovaTopupQuote> {
+    if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
+    const amountRub = Math.floor(Number(body?.amountRub || 0))
+    if (!Number.isFinite(amountRub) || amountRub < 0) {
+      throw new NovaError('amountRub must be a positive number', 400)
+    }
+    const currency = String(body?.currency || 'RUB').toUpperCase()
+    if (!(STEAM_CURRENCIES as readonly string[]).includes(currency)) {
+      throw new NovaError('Unsupported currency', 400)
+    }
+
+    if (this.devMode) {
+      const rates: Record<string, number> = { RUB: 1, KZT: 0.21, UAH: 2.2 }
+      const pricing = await this.getSteamPricing(projectId)
+      const factor = 1 + Number(pricing.steamMarkup || 0) / 100
+      const rate = rates[currency] || 1
+      const minReceive = Number(pricing.min?.[currency] || 0)
+      const maxReceive = Number(pricing.max?.[currency] || 0)
+      const chargeFor = (receive: number) => Math.ceil(Math.ceil(receive * rate) * factor)
+      const minChargeRub = chargeFor(minReceive)
+      const maxChargeRub = chargeFor(maxReceive)
+      let receiveAmount = Math.min(maxReceive, Math.floor(amountRub / Math.max(rate * factor, 0.0001)))
+      while (receiveAmount > 0 && chargeFor(receiveAmount) > amountRub) receiveAmount -= 1
+      const chargeRub = receiveAmount > 0 ? chargeFor(receiveAmount) : 0
+      return {
+        receiveAmount,
+        receiveCurrency: currency as NovaTopupQuote['receiveCurrency'],
+        chargeRub,
+        remainingRub: Math.max(0, amountRub - chargeRub),
+        valid: receiveAmount >= minReceive && chargeRub <= amountRub,
+        minChargeRub,
+        maxChargeRub,
+      }
+    }
+
+    return this.request<NovaTopupQuote>(
+      `/${projectId}/steam-topup-quote`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ amountRub, currency }),
+      },
+      undefined,
+      { withKey: true },
+    )
   }
 
   async getSteamGames(projectId: string, opts: { limit?: number; q?: string } = {}): Promise<NovaSteamGamesCatalog> {

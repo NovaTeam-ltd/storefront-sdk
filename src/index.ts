@@ -1,4 +1,4 @@
-export { NovaClient, NovaError } from './client'
+export { NovaClient, NovaError, quoteStarsFromRub } from './client'
 export { applyTheme } from './theme'
 export { MOCK_SHOP, MOCK_PRODUCTS, MOCK_PAYMENT_METHODS } from './mock'
 export type {
@@ -25,9 +25,18 @@ export type {
   NovaSteamTopupRequest,
   NovaSteamTopupResult,
   NovaSteamPricing,
+  NovaSteamCurrency,
+  NovaSteamTopupQuoteRequest,
+  NovaTopupQuote,
   NovaSteamGame,
   NovaSteamGamesCatalog,
+  NovaStarsPricing,
+  NovaPremiumPricing,
+  NovaStarsOrderRequest,
+  NovaPremiumOrderRequest,
   NovaSteamTopupV2Request,
+  NovaFragmentOrderResult,
+  NovaBotOrderInfo,
   NovaProxyPricing,
   NovaProxyGbOption,
   NovaProxyOrderRequest,

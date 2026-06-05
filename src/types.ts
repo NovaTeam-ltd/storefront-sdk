@@ -260,6 +260,25 @@ export interface NovaSteamPricing {
   paymentMethods: NovaPaymentMethod[]
 }
 
+export type NovaSteamCurrency = 'RUB' | 'KZT' | 'UAH'
+
+export interface NovaSteamTopupQuoteRequest {
+  /** Amount in RUB the buyer wants to spend before payment-provider fees. */
+  amountRub: number
+  /** Steam wallet currency the buyer wants to receive. */
+  currency?: NovaSteamCurrency
+}
+
+export interface NovaTopupQuote {
+  receiveAmount: number
+  receiveCurrency: NovaSteamCurrency
+  chargeRub: number
+  remainingRub: number
+  valid: boolean
+  minChargeRub: number
+  maxChargeRub: number
+}
+
 export interface NovaSteamGame {
   serviceId: number
   name: string
