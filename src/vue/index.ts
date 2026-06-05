@@ -1,5 +1,5 @@
 import { ref, shallowRef, readonly, watch, type App, type InjectionKey, inject, computed } from 'vue'
-import { NovaClient, applyTheme, quoteStarsFromRub } from '../index'
+import { NovaClient, applyTheme, quoteStarsFromRub, quoteSteamTopupFromRub } from '../index'
 import type {
   NovaShop,
   NovaProduct,
@@ -22,6 +22,7 @@ import type {
   NovaStarsPricing,
   NovaPremiumPricing,
   NovaSteamPricing,
+  NovaSteamQuoteRate,
   NovaSteamTopupQuoteRequest,
   NovaTopupQuote,
   NovaSteamGamesCatalog,
@@ -348,6 +349,8 @@ export type {
   NovaSteamTopupResult,
   NovaStarsPricing,
   NovaPremiumPricing,
+  NovaSteamPricing,
+  NovaSteamQuoteRate,
   NovaProxyPricing,
   NovaProxyOrderRequest,
   NovaVpnOrderRequest,
@@ -355,7 +358,7 @@ export type {
   NovaTopupQuote,
 }
 
-export { quoteStarsFromRub }
+export { quoteStarsFromRub, quoteSteamTopupFromRub }
 
 // ── Customer auth (email OTP) ───────────────────────────────────────────
 export function useCustomer() {

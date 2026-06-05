@@ -257,10 +257,18 @@ export interface NovaSteamPricing {
   min: Record<string, number>
   max: Record<string, number>
   steamMarkup: number
+  quoteRates?: Partial<Record<NovaSteamCurrency, NovaSteamQuoteRate>>
   paymentMethods: NovaPaymentMethod[]
 }
 
 export type NovaSteamCurrency = 'RUB' | 'KZT' | 'UAH'
+
+export interface NovaSteamQuoteRate {
+  rubPerUnit: number
+  markupFactor: number
+  minChargeRub: number
+  maxChargeRub: number
+}
 
 export interface NovaSteamTopupQuoteRequest {
   /** Amount in RUB the buyer wants to spend before payment-provider fees. */

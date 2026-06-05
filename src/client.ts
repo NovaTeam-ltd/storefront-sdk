@@ -24,6 +24,7 @@ import type {
   NovaStarsPricing,
   NovaPremiumPricing,
   NovaSteamPricing,
+  NovaSteamCurrency,
   NovaSteamTopupQuoteRequest,
   NovaTopupQuote,
   NovaSteamGamesCatalog,
@@ -46,6 +47,7 @@ const CUSTOMER_TOKEN_KEY = 'novahub:customer-token'
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'] as const
 const CLICK_ID_KEYS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'yclid', 'msclkid'] as const
 const STEAM_CURRENCIES = ['RUB', 'KZT', 'UAH'] as const
+const DEV_STEAM_RUB_PER_UNIT: Record<string, number> = { RUB: 1, KZT: 0.21, UAH: 2.2 }
 
 export function quoteStarsFromRub(
   pricing: NovaStarsPricing | null | undefined,
@@ -86,6 +88,58 @@ export function quoteStarsFromRub(
     minChargeRub,
     maxChargeRub,
     pricePerStar,
+  }
+}
+
+function steamChargeRub(receiveAmount: number, rubPerUnit: number, markupFactor: number) {
+  return Math.ceil(Math.ceil(receiveAmount * rubPerUnit) * markupFactor)
+}
+
+export function quoteSteamTopupFromRub(
+  pricing: NovaSteamPricing | null | undefined,
+  amountRub: number,
+  currency: NovaSteamCurrency = 'RUB',
+): NovaTopupQuote {
+  const cur = ((currency || 'RUB') as string).toUpperCase() as NovaSteamCurrency
+  if (!(STEAM_CURRENCIES as readonly string[]).includes(cur)) {
+    throw new NovaError('Unsupported currency', 400)
+  }
+
+  const budgetRub = Math.floor(Number(amountRub || 0))
+  const minReceive = Number(pricing?.min?.[cur] ?? 0)
+  const maxReceive = Number(pricing?.max?.[cur] ?? 0)
+  const rate = pricing?.quoteRates?.[cur]
+  const rubPerUnit = Number(rate?.rubPerUnit || DEV_STEAM_RUB_PER_UNIT[cur] || 1)
+  const markupFactor = Number(rate?.markupFactor || (1 + Number(pricing?.steamMarkup || 0) / 100))
+  const minChargeRub = Number(rate?.minChargeRub || steamChargeRub(minReceive, rubPerUnit, markupFactor))
+  const maxChargeRub = Number(rate?.maxChargeRub || steamChargeRub(maxReceive, rubPerUnit, markupFactor))
+
+  if (!Number.isFinite(budgetRub) || budgetRub < 0 || !rubPerUnit || !markupFactor || maxReceive <= 0) {
+    return {
+      receiveAmount: 0,
+      receiveCurrency: cur,
+      chargeRub: 0,
+      remainingRub: Math.max(0, budgetRub || 0),
+      valid: false,
+      minChargeRub,
+      maxChargeRub,
+    }
+  }
+
+  let receiveAmount = Math.min(maxReceive, Math.floor(budgetRub / Math.max(rubPerUnit * markupFactor, 0.0001)))
+  while (receiveAmount > 0 && steamChargeRub(receiveAmount, rubPerUnit, markupFactor) > budgetRub) {
+    receiveAmount -= 1
+  }
+  const chargeRub = receiveAmount > 0 ? steamChargeRub(receiveAmount, rubPerUnit, markupFactor) : 0
+
+  return {
+    receiveAmount,
+    receiveCurrency: cur,
+    chargeRub,
+    remainingRub: Math.max(0, budgetRub - chargeRub),
+    valid: receiveAmount >= minReceive && chargeRub <= budgetRub,
+    minChargeRub,
+    maxChargeRub,
   }
 }
 
@@ -667,11 +721,32 @@ export class NovaClient {
   async getSteamPricing(projectId: string): Promise<NovaSteamPricing> {
     if (!UUID_RE.test(projectId)) throw new NovaError('Invalid projectId', 400)
     if (this.devMode) {
+      const markupFactor = 1
       return {
         currencies: ['RUB', 'KZT', 'UAH'],
         min: { RUB: 100, KZT: 500, UAH: 50 },
         max: { RUB: 100000, KZT: 500000, UAH: 50000 },
         steamMarkup: 0,
+        quoteRates: {
+          RUB: {
+            rubPerUnit: DEV_STEAM_RUB_PER_UNIT.RUB,
+            markupFactor,
+            minChargeRub: steamChargeRub(100, DEV_STEAM_RUB_PER_UNIT.RUB, markupFactor),
+            maxChargeRub: steamChargeRub(100000, DEV_STEAM_RUB_PER_UNIT.RUB, markupFactor),
+          },
+          KZT: {
+            rubPerUnit: DEV_STEAM_RUB_PER_UNIT.KZT,
+            markupFactor,
+            minChargeRub: steamChargeRub(500, DEV_STEAM_RUB_PER_UNIT.KZT, markupFactor),
+            maxChargeRub: steamChargeRub(500000, DEV_STEAM_RUB_PER_UNIT.KZT, markupFactor),
+          },
+          UAH: {
+            rubPerUnit: DEV_STEAM_RUB_PER_UNIT.UAH,
+            markupFactor,
+            minChargeRub: steamChargeRub(50, DEV_STEAM_RUB_PER_UNIT.UAH, markupFactor),
+            maxChargeRub: steamChargeRub(50000, DEV_STEAM_RUB_PER_UNIT.UAH, markupFactor),
+          },
+        },
         paymentMethods: this.devPaymentMethods,
       }
     }
@@ -693,27 +768,8 @@ export class NovaClient {
     }
 
     if (this.devMode) {
-      const rates: Record<string, number> = { RUB: 1, KZT: 0.21, UAH: 2.2 }
       const pricing = await this.getSteamPricing(projectId)
-      const factor = 1 + Number(pricing.steamMarkup || 0) / 100
-      const rate = rates[currency] || 1
-      const minReceive = Number(pricing.min?.[currency] || 0)
-      const maxReceive = Number(pricing.max?.[currency] || 0)
-      const chargeFor = (receive: number) => Math.ceil(Math.ceil(receive * rate) * factor)
-      const minChargeRub = chargeFor(minReceive)
-      const maxChargeRub = chargeFor(maxReceive)
-      let receiveAmount = Math.min(maxReceive, Math.floor(amountRub / Math.max(rate * factor, 0.0001)))
-      while (receiveAmount > 0 && chargeFor(receiveAmount) > amountRub) receiveAmount -= 1
-      const chargeRub = receiveAmount > 0 ? chargeFor(receiveAmount) : 0
-      return {
-        receiveAmount,
-        receiveCurrency: currency as NovaTopupQuote['receiveCurrency'],
-        chargeRub,
-        remainingRub: Math.max(0, amountRub - chargeRub),
-        valid: receiveAmount >= minReceive && chargeRub <= amountRub,
-        minChargeRub,
-        maxChargeRub,
-      }
+      return quoteSteamTopupFromRub(pricing, amountRub, currency as NovaSteamCurrency)
     }
 
     return this.request<NovaTopupQuote>(
