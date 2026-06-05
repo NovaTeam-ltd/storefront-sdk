@@ -1,4 +1,4 @@
-import { ref, shallowRef, readonly, watch, type App, type InjectionKey, inject, computed } from 'vue'
+import { ref, shallowRef, readonly, watch, type App, type InjectionKey, inject, computed, type Ref } from 'vue'
 import { NovaClient, applyTheme, quoteStarsFromRub, quoteSteamTopupFromRub } from '../index'
 import type {
   NovaShop,
@@ -50,6 +50,10 @@ interface NovaContext {
   error: ReturnType<typeof ref<string | null>>
 }
 
+function readonlyRef<T>(source: Ref<T>): Readonly<Ref<T>> {
+  return readonly(source) as Readonly<Ref<T>>
+}
+
 export function createNova(config: NovaSDKConfig = {}) {
   const client = new NovaClient(config)
   const shop = shallowRef<NovaShop | null>(null)
@@ -87,9 +91,9 @@ export function useNova() {
 export function useShop() {
   const { shop, loading, error } = useNovaContext()
   return {
-    shop: readonly(shop),
-    loading: readonly(loading),
-    error: readonly(error),
+    shop: readonlyRef(shop),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
   }
 }
 
@@ -119,9 +123,9 @@ export function useProducts(category?: string) {
   }, { immediate: true })
 
   return {
-    products: readonly(products),
-    loading: readonly(loading),
-    error: readonly(error),
+    products: readonlyRef(products),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
     reload: load,
   }
 }
@@ -152,9 +156,9 @@ export function useCategories() {
   }, { immediate: true })
 
   return {
-    categories: readonly(categories),
-    loading: readonly(loading),
-    error: readonly(error),
+    categories: readonlyRef(categories),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
     reload: load,
   }
 }
@@ -185,9 +189,9 @@ export function useProduct(productId: string) {
   }, { immediate: true })
 
   return {
-    product: readonly(product),
-    loading: readonly(loading),
-    error: readonly(error),
+    product: readonlyRef(product),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
     reload: load,
   }
 }
@@ -215,9 +219,9 @@ export function usePaymentMethods() {
   watch(shop, (s) => { if (s) load() }, { immediate: true })
 
   return {
-    methods: readonly(methods),
-    loading: readonly(loading),
-    error: readonly(error),
+    methods: readonlyRef(methods),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
     reload: load,
   }
 }
@@ -251,16 +255,16 @@ export function usePurchase() {
 
   return {
     purchase,
-    loading: readonly(loading),
-    error: readonly(error),
-    result: readonly(result),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
+    result: readonlyRef(result),
   }
 }
 
 export function useVisitor() {
   const { shop } = useNovaContext()
   return {
-    visitor: readonly(computed<NovaVisitor | null>(() => shop.value?.visitor ?? null)),
+    visitor: readonlyRef(computed<NovaVisitor | null>(() => shop.value?.visitor ?? null)),
   }
 }
 
@@ -282,7 +286,7 @@ export function usePreferences() {
     }
   }
 
-  return { set, loading: readonly(loading), error: readonly(error) }
+  return { set, loading: readonlyRef(loading), error: readonlyRef(error) }
 }
 
 export function useOrder(orderId: string, options: { autoPoll?: boolean; intervalMs?: number } = {}) {
@@ -332,9 +336,9 @@ export function useOrder(orderId: string, options: { autoPoll?: boolean; interva
   }
 
   return {
-    order: readonly(order),
-    loading: readonly(loading),
-    error: readonly(error),
+    order: readonlyRef(order),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
     refresh: fetchOnce,
     stop: () => { stop = true },
   }
@@ -453,11 +457,11 @@ export function useCustomer() {
   }, { immediate: true })
 
   return {
-    customer: readonly(customer),
-    isAuthenticated: readonly(isAuthenticated),
-    requestingOtp: readonly(requestingOtp),
-    verifying: readonly(verifying),
-    error: readonly(error),
+    customer: readonlyRef(customer),
+    isAuthenticated: readonlyRef(isAuthenticated),
+    requestingOtp: readonlyRef(requestingOtp),
+    verifying: readonlyRef(verifying),
+    error: readonlyRef(error),
     requestOtp,
     verifyOtp,
     logout,
@@ -491,9 +495,9 @@ export function useOrderHistory() {
   watch(shop, (s) => { if (s) load() }, { immediate: true })
 
   return {
-    orders: readonly(orders),
-    loading: readonly(loading),
-    error: readonly(error),
+    orders: readonlyRef(orders),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
     reload: load,
   }
 }
@@ -588,11 +592,11 @@ export function useSupportChat(orderId: string, options: { autoPoll?: boolean; i
   })
 
   return {
-    chat: readonly(chat),
-    loading: readonly(loading),
-    sending: readonly(sending),
-    error: readonly(error),
-    connected: readonly(connected),
+    chat: readonlyRef(chat),
+    loading: readonlyRef(loading),
+    sending: readonlyRef(sending),
+    error: readonlyRef(error),
+    connected: readonlyRef(connected),
     refresh: load,
     send,
     rate,
@@ -632,9 +636,9 @@ export function useSteamTopup() {
 
   return {
     topup,
-    loading: readonly(loading),
-    error: readonly(error),
-    result: readonly(result),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
+    result: readonlyRef(result),
   }
 }
 
@@ -655,7 +659,7 @@ function makePricingComposable<T>(fetcher: (client: NovaClient, projectId: strin
       finally { loading.value = false }
     }
     watch(shop, (s) => { if (s) refresh() }, { immediate: true })
-    return { data: readonly(data) as any, loading: readonly(loading), error: readonly(error), refresh }
+    return { data: readonlyRef(data), loading: readonlyRef(loading), error: readonlyRef(error), refresh }
   }
 }
 
@@ -686,7 +690,7 @@ export function useSteamTopupQuote() {
     }
   }
 
-  return { quote: readonly(quote) as any, loading: readonly(loading), error: readonly(error), refresh }
+  return { quote: readonlyRef(quote), loading: readonlyRef(loading), error: readonlyRef(error), refresh }
 }
 
 export function useSteamGames(opts: { limit?: number; q?: string } = {}) {
@@ -710,7 +714,7 @@ export function useSteamGames(opts: { limit?: number; q?: string } = {}) {
     }
   }
   watch(shop, (s) => { if (s) refresh() }, { immediate: true })
-  return { data: readonly(data) as any, loading: readonly(loading), error: readonly(error), refresh }
+  return { data: readonlyRef(data), loading: readonlyRef(loading), error: readonlyRef(error), refresh }
 }
 
 function makeOrderComposable<Body>(call: (client: NovaClient, projectId: string, body: Body) => Promise<NovaFragmentOrderResult>) {
@@ -727,7 +731,7 @@ function makeOrderComposable<Body>(call: (client: NovaClient, projectId: string,
       catch (e) { error.value = e instanceof Error ? e.message : 'Order failed'; throw e }
       finally { loading.value = false }
     }
-    return { submit, loading: readonly(loading), error: readonly(error), result: readonly(result) as any }
+    return { submit, loading: readonlyRef(loading), error: readonlyRef(error), result: readonlyRef(result) }
   }
 }
 
@@ -770,7 +774,7 @@ export function useBotOrder(orderId: string, options: { autoPoll?: boolean; inte
     watch(shop, (s) => { if (s) fetchOnce() }, { immediate: true })
   }
 
-  return { order: readonly(order) as any, loading: readonly(loading), error: readonly(error), refresh: fetchOnce, stop: () => { stop = true } }
+  return { order: readonlyRef(order), loading: readonlyRef(loading), error: readonlyRef(error), refresh: fetchOnce, stop: () => { stop = true } }
 }
 
 // ── Proxy / VPN ───────────────────────────────────────────────────────
@@ -797,9 +801,9 @@ export function useProxyPricing() {
   watch(shop, (s) => { if (s) load() }, { immediate: true })
 
   return {
-    pricing: readonly(pricing),
-    loading: readonly(loading),
-    error: readonly(error),
+    pricing: readonlyRef(pricing),
+    loading: readonlyRef(loading),
+    error: readonlyRef(error),
     reload: load,
   }
 }
@@ -824,7 +828,7 @@ export function useProxyOrder() {
     }
   }
 
-  return { order, loading: readonly(loading), error: readonly(error) }
+  return { order, loading: readonlyRef(loading), error: readonlyRef(error) }
 }
 
 export function useVpnOrder() {
@@ -847,5 +851,5 @@ export function useVpnOrder() {
     }
   }
 
-  return { order, loading: readonly(loading), error: readonly(error) }
+  return { order, loading: readonlyRef(loading), error: readonlyRef(error) }
 }

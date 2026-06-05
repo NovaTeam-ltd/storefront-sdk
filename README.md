@@ -121,6 +121,29 @@ import type { NovaProduct } from '@novasynx/storefront-sdk/react'
 
 Ключевые поля имеют JSDoc-комментарии, поэтому VS Code/WebStorm показывают назначение `product.image`, `paymentMethod`, Steam/Stars quote-полей и order DTO прямо в autocomplete.
 
+## Starters
+
+В репозитории SDK есть готовые starter-проекты:
+
+- `starters/vue` - Vue 3 + TypeScript + `@novasynx/storefront-sdk/vue`;
+- `starters/react` - React + TypeScript + `@novasynx/storefront-sdk/react`.
+
+Оба starter-а используют публичные SDK-типы напрямую в коде каталога: `NovaProduct`, `NovaPurchaseRequest`, `NovaPaymentMethodId`. В `src/sdk-examples.ts` дополнительно лежат typed helpers для новых сценариев `quoteStarsFromRub()`, `quoteSteamTopupFromRub()`, `NovaStarsOrderRequest` и `NovaSteamTopupV2Request`.
+
+Внутри репозитория зависимость SDK прописана как `file:../..`, чтобы starter build проверял текущие локальные типы. Если вы копируете starter в отдельный проект, замените зависимость на опубликованный пакет: `"@novasynx/storefront-sdk": "^1.1.0"`.
+
+Build starter-а запускает type-check перед Vite-сборкой, поэтому несовпадение с `.d.ts` SDK будет видно сразу:
+
+```bash
+cd starters/vue
+npm install
+npm run build
+
+cd ../react
+npm install
+npm run build
+```
+
 ## Товары И Изображения
 
 `NovaProduct.image` может быть `null` или URL картинки. Если картинка пришла от внешнего поставщика, backend отдает ее через безопасный proxy на домене магазина.

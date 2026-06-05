@@ -1,6 +1,6 @@
 {
   "name": "@novasynx/storefront-sdk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "NovaHub Storefront SDK for building custom shop templates",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,7 +22,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "starters"
   ],
   "scripts": {
     "build": "tsup",

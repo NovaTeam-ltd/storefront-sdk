@@ -1,12 +1,63 @@
-<script setup>
-import { useShop, useProducts, useCategories } from '@novasynx/storefront-sdk/vue'
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import {
+  useCategories,
+  usePaymentMethods,
+  useProducts,
+  usePurchase,
+  useShop,
+  type NovaPaymentMethodId,
+  type NovaProduct,
+  type NovaPurchaseRequest,
+} from '@novasynx/storefront-sdk/vue'
 
 const { shop, loading: shopLoading, error: shopError } = useShop()
-const { products, loading: productsLoading } = useProducts()
 const { categories } = useCategories()
+const { methods } = usePaymentMethods()
+const {
+  products,
+  loading: productsLoading,
+  error: productsError,
+  reload: reloadProducts,
+} = useProducts()
+const {
+  purchase,
+  loading: purchaseLoading,
+  error: purchaseError,
+  result: purchaseResult,
+} = usePurchase()
 
-function formatPrice(price) {
+const selectedCategory = ref<string | undefined>()
+
+const shopName = computed(() => shop.value?.name ?? 'Nova Shop')
+const shopCurrency = computed(() => shop.value?.currency ?? 'RUB')
+const categoryList = computed(() => categories.value)
+const productList = computed(() => products.value)
+const paymentMethod = computed<NovaPaymentMethodId | null>(() => methods.value[0]?.id ?? null)
+const paymentUrl = computed(() => purchaseResult.value?.payUrl ?? null)
+const isBuying = computed(() => purchaseLoading.value)
+
+function formatPrice(price: number) {
   return new Intl.NumberFormat('ru-RU').format(price)
+}
+
+async function selectCategory(category?: string) {
+  selectedCategory.value = category
+  await reloadProducts(category)
+}
+
+async function buy(product: NovaProduct) {
+  const method = paymentMethod.value
+  if (!method) return
+
+  const request: NovaPurchaseRequest = {
+    productId: product.id,
+    quantity: 1,
+    paymentMethod: method,
+  }
+
+  const order = await purchase(request)
+  if (order.payUrl) window.location.assign(order.payUrl)
 }
 </script>
 
@@ -23,26 +74,50 @@ function formatPrice(price) {
 
     <template v-else>
       <header class="header">
-        <h1 class="logo">{{ shop.name }}</h1>
-        <nav class="nav">
-          <a v-for="cat in categories" :key="cat" href="#" class="nav-link">
+        <h1 class="logo">{{ shopName }}</h1>
+        <nav class="nav" aria-label="Категории">
+          <button
+            type="button"
+            class="nav-link"
+            :class="{ active: !selectedCategory }"
+            @click="selectCategory(undefined)"
+          >
+            Все
+          </button>
+          <button
+            v-for="cat in categoryList"
+            :key="cat"
+            type="button"
+            class="nav-link"
+            :class="{ active: selectedCategory === cat }"
+            @click="selectCategory(cat)"
+          >
             {{ cat }}
-          </a>
+          </button>
         </nav>
       </header>
 
       <main class="main">
         <section class="hero">
-          <h2>Добро пожаловать в {{ shop.name }}</h2>
+          <h2>{{ shopName }}</h2>
           <p>Выберите товар из каталога</p>
         </section>
 
+        <p v-if="productsError" class="inline-error">{{ productsError }}</p>
+        <p v-if="purchaseError" class="inline-error">{{ purchaseError }}</p>
+        <a v-if="paymentUrl" :href="paymentUrl" class="payment-link">
+          Открыть оплату
+        </a>
+
         <section class="catalog">
-          <div v-if="productsLoading" class="loader">
+          <div v-if="productsLoading" class="loader compact">
             <div class="spinner"></div>
           </div>
+          <div v-else-if="!productList.length" class="empty">
+            Нет товаров в выбранной категории
+          </div>
           <div v-else class="products-grid">
-            <div v-for="product in products" :key="product.id" class="product-card">
+            <article v-for="product in productList" :key="product.id" class="product-card">
               <img
                 v-if="product.image"
                 :src="product.image"
@@ -50,25 +125,32 @@ function formatPrice(price) {
                 class="product-image"
               />
               <div v-else class="product-image-placeholder">
-                <span>🛒</span>
+                Нет изображения
               </div>
               <div class="product-info">
                 <h3 class="product-name">{{ product.name }}</h3>
                 <span class="product-category">{{ product.category }}</span>
                 <div class="product-footer">
                   <span class="product-price">
-                    {{ formatPrice(product.price) }} {{ shop.currency }}
+                    {{ formatPrice(product.price) }} {{ shopCurrency }}
                   </span>
-                  <button class="btn-buy">Купить</button>
+                  <button
+                    type="button"
+                    class="btn-buy"
+                    :disabled="isBuying || !paymentMethod"
+                    @click="buy(product)"
+                  >
+                    {{ isBuying ? 'Создание...' : 'Купить' }}
+                  </button>
                 </div>
               </div>
-            </div>
+            </article>
           </div>
         </section>
       </main>
 
       <footer class="footer">
-        <p>&copy; {{ new Date().getFullYear() }} {{ shop.name }}</p>
+        <p>&copy; {{ new Date().getFullYear() }} {{ shopName }}</p>
       </footer>
     </template>
   </div>

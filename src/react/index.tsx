@@ -6,7 +6,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react'
-import { NovaClient, applyTheme } from '../index'
+import { NovaClient, applyTheme, quoteStarsFromRub, quoteSteamTopupFromRub } from '../index'
 import type {
   NovaShop,
   NovaVisitor,
@@ -356,3 +356,5 @@ export type {
   NovaProxyOrderRequest,
   NovaVpnOrderRequest,
 }
+
+export { quoteStarsFromRub, quoteSteamTopupFromRub }
